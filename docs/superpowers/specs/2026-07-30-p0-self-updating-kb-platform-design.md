@@ -161,44 +161,145 @@ l1_kb/
 
 ---
 
-## 四、清洗 pipeline
+## 四、清洗 pipeline（文档 → MD → section 切分）
 
-### 4.1 架构：BaseCleaner + 按扩展名分发
+清洗 pipeline 的职责：把 raw 原件转成**结构化 markdown**，并切分成 **section（最小检索单元）**。section 切分质量直接决定后续索引与召回质量，是 P0 工程量最大的模块。
+
+### 4.1 架构：BaseCleaner + 按扩展名分发 + SectionSplitter
 
 ```
-clean(path) → dispatcher(按扩展名) → XxxCleaner.to_markdown() → md 文本
+clean(raw_path)
+  │
+  ▼
+dispatcher(按扩展名) ──┬─ .pdf  ─▶ PdfCleaner
+                      ├─ .docx ─▶ WordCleaner
+                      ├─ .xlsx ─▶ ExcelCleaner
+                      └─ .md   ─▶ MarkdownCleaner
+  │
+  ▼  各 Cleaner 输出: 统一 markdown 文本(带 ATX 标题层级 + pipe 表)
+  │
+  ▼
+SectionSplitter.split(md_text) ──▶ [(section_id, title, line_start, line_end, level, body), ...]
+  │  解析 # / ## / ### 标题行号, 按标题切块
+  ▼
+写入 md/{category}/{doc_id}.md  +  返回 sections 列表(供 IndexBuilder)
 ```
 
 ```python
 class BaseCleaner:
     def to_markdown(self, raw_path: Path) -> str:
-        """返回清洗后的 markdown, 内含 section 切分(标题层级)."""
+        """返回清洗后的 markdown: ATX 标题(#/##/###) + pipe 表格."""
         raise NotImplementedError
 
-class PdfCleaner(BaseCleaner): ...      # PyMuPDF4LLM.to_markdown + pdfplumber.extract_tables
+class PdfCleaner(BaseCleaner): ...      # PyMuPDF4LLM.to_markdown + pdfplumber.extract_tables 兜底
 class WordCleaner(BaseCleaner): ...     # Pandoc 转换(docx→md, ATX标题+pipe表)
-class ExcelCleaner(BaseCleaner): ...    # openpyxl+pandas: 每 sheet → 完整 markdown 表
-class MarkdownCleaner(BaseCleaner): ... # 原样保留
+class ExcelCleaner(BaseCleaner): ...    # openpyxl+pandas: 每 sheet → 完整 markdown 表(## sheet名)
+class MarkdownCleaner(BaseCleaner): ... # 原样保留(仅规范化标题层级)
 
 CLEANERS = {".pdf": PdfCleaner, ".docx": WordCleaner, ".xlsx": ExcelCleaner, ".md": MarkdownCleaner}
 ```
 
-### 4.2 各类型清洗要点
+### 4.2 各类型清洗要点与实现细节
 
-| 类型 | 工具 | 关键能力 | 要点 |
-| --- | --- | --- | --- |
-| **PDF** | PyMuPDF4LLM + pdfplumber | 保留表格→markdown 表 | 表格是数据表/接口文档核心,必须完整转 markdown 表 |
-| **Word** | Pandoc | ATX 标题 + pipe 表 | 流程制度文档,保留标题层级 |
-| **Excel** | openpyxl + pandas | **每个 sheet → 完整 markdown 表(含表头)** | **重中之重**:字段说明表必须整表转 markdown,BM25 才能精准召回字段名 |
-| **Markdown** | 原样 | — | 已是目标格式 |
+#### 4.2.1 PDF（PdfCleaner）
 
-### 4.3 Excel 多 sheet = 多 section
+```mermaid
+flowchart LR
+    PDF[原始 PDF] --> M1[PyMuPDF4LLM.to_markdown<br/>主体文本+标题层级]
+    PDF --> M2[pdfplumber.extract_tables<br/>抽取表格]
+    M1 --> MERGE[合并: 文本流中表格位置<br/>插入 pipe 表]
+    M2 --> MERGE
+    MERGE --> MD[结构化 markdown<br/>ATX标题 + pipe表]
+    style MERGE fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+```
 
-每个 sheet 转成一个 markdown 表,作为该文档下的一个 section（对应决策：每个 sheet = 一个 section）。这样 `read_section(doc_id, sheet名)` 能精准取一个表。
+- **主流程**：`PyMuPDF4LLM.to_markdown()` 负责正文与标题层级（它内部已处理分栏、阅读顺序）。
+- **表格兜底**：PyMuPDF4LLM 对复杂表格可能转不全，用 `pdfplumber.extract_tables()` 抽取，转成 pipe 表后按页码+坐标回填到正文对应位置。
+- **边界处理**：页眉页脚去重；跨页表格合并；空行压缩。
+- **为什么两库并用**：PyMuPDF4LLM 文本强但表格弱，pdfplumber 表格强但不输出文本流，互补。
 
-### 4.4 section 切分
+#### 4.2.2 Word（WordCleaner / Pandoc）
 
-清洗产出的 markdown 按 `#`/`##` 标题切分 section。**section 是最小检索单元**。行号范围由脚本解析标题行号确定（确定性,不靠 LLM）。
+```mermaid
+flowchart LR
+    DOCX[原始 .docx] --> PAN["Pandoc 转换<br/>pandoc -f docx -t gfm"]
+    PAN --> NORM[规范化: 标题→ATX<br/>表→pipe表]
+    NORM --> MD[结构化 markdown]
+    style PAN fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+```
+
+- **命令**：`pandoc input.docx -f docx -t gfm --wrap=none`（GitHub Flavored Markdown，原生支持 ATX 标题 + pipe 表）。
+- **规范化**：Pandoc 偶尔输出 Setext 标题（下划线式），统一转 ATX（`#`）；确保表格为 pipe 格式。
+- **依赖**：Pandoc 二进制（docker 镜像内 `apt install pandoc`）。
+
+#### 4.2.3 Excel（ExcelCleaner）—— 重中之重
+
+```mermaid
+flowchart TD
+    XLSX[原始 .xlsx] --> OPEN[openpyxl 打开<br/>获取所有 sheet 名]
+    OPEN --> LOOP{遍历每个 sheet}
+    LOOP --> READ[pandas.read_excel<br/>sheet_name=当前]
+    READ --> MD_TAB[整表 → markdown 表<br/>含表头 + 数据行]
+    MD_TAB --> WRAP["包装为 section:<br/>## {sheet名}<br/>| col1 | col2 | ... |<br/>|---|---|<br/>| ... |"]
+    WRAP --> NEXT{还有 sheet?}
+    NEXT -->|是| LOOP
+    NEXT -->|否| CONCAT[拼接所有 sheet section]
+    CONCAT --> MD[结构化 markdown<br/>每 sheet 一个 ## section]
+    style MD_TAB fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style WRAP fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+```
+
+- **核心**：`pandas.read_excel(sheet_name=None)` 一次读全部 sheet，每个 sheet `df.to_markdown(index=False)` 转 pipe 表。
+- **每 sheet = 一个 section**（对应决策）：`## {sheet名}` 作为标题，下面整张表。这样 `read_section(doc_id, sheet名)` 精准取一个表，BM25 既能召回表名也能召回字段名。
+- **空 sheet 跳过**；合并单元格预处理（`fillna(method='ffill')`）。
+- **为什么整表而非行**：行级上下文太碎、BM25 信号弱；整表保留字段名+类型+说明上下文，召回质量最高。
+
+#### 4.2.4 Markdown（MarkdownCleaner）
+
+原样保留，仅规范化标题层级（统一 ATX `#`），确保后续 SectionSplitter 能正确解析。
+
+### 4.3 section 切分（SectionSplitter）—— 检索质量命脉
+
+清洗产出的 markdown 按 `#`/`##`/`###` 标题切分。**section 是最小检索单元 = 索引单元 = 加载单元**（三层一致）。行号范围由脚本解析标题行号确定（确定性，不靠 LLM）。
+
+```mermaid
+flowchart LR
+    MD[清洗后 markdown] --> PARSE[逐行扫描<br/>匹配 ^#{1,3}\s 标题正则]
+    PARSE --> CUT[按标题行切块<br/>每块 = 一个 section]
+    CUT --> ASSIGN[分配 section_id: s0, s1, s2...<br/>记录 line_start/line_end/level]
+    ASSIGN --> OUT["sections = [<br/>  {s0, 'Sheet1:订单主表', 1, 48, 2},<br/>  {s1, 'Sheet2:明细', 49, 95, 2},<br/>  ...<br/>]"]
+    style CUT fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+```
+
+**切分规则**：
+
+1. 逐行扫描，正则 `^#{1,3}\s+(.+)` 匹配标题行，记录行号与层级。
+2. 两个相邻标题行之间为一个 section：`line_start` = 标题行号，`line_end` = 下一个标题行号 - 1（末尾 section 到文件末）。
+3. section 内容 = 标题 + 该段正文（含表格）。
+4. **无标题文档兜底**：整篇作为一个 section `s0`。
+5. **过长 section 兜底**：单个 section 超过 N 行（默认 200）时，按段落空行二次切分，避免单段过大稀释 BM25 信号。
+
+**section_id 稳定**：按出现顺序 `s0/s1/...`，重摄入同一文档时顺序一致，保证向量索引行号稳定。
+
+### 4.4 一个 Excel 文档的完整切分示例
+
+输入 `order_detail.xlsx`（2 个 sheet），清洗 + 切分后 `md/data_table/order_detail.md`：
+
+```markdown
+## Sheet1: 订单主表
+| order_id | order_status | amount | created_at |
+|----------|--------------|--------|------------|
+| string   | string       | decimal| datetime   |
+| 订单唯一标识 | 订单状态 | 金额 | 创建时间 |
+
+## Sheet2: 订单明细
+| detail_id | order_id | product_name | qty |
+|-----------|----------|--------------|-----|
+| string    | string   | string       | int |
+| 明细唯一标识 | 关联订单ID | 商品名称 | 数量 |
+```
+
+切分结果：2 个 section —— `s0`(行1-5, "Sheet1: 订单主表")、`s1`(行7-12, "Sheet2: 订单明细")。BM25 搜 `order_id` 命中 `s0` 和 `s1`（两表都有此字段），返回各自 snippet。
 
 ---
 
@@ -248,14 +349,73 @@ L1 导航核心,Agent 查询入口。LLM 两步归纳生成。
 | `related_docs` | LLM 第1步 | 关联文档 doc_id 列表(非 Obsidian wikilink) |
 | `ingested_at` | 脚本 | 摄入时间戳 |
 
-### 5.2 LLM 两步归纳
+### 5.2 索引的每一步：从清洗产物到 index.json + 检索索引
+
+索引分两条线并行产出：**(A) 结构化元数据线**（写入 index.json）与 **(B) 检索索引线**（BM25 倒排 + 向量）。两者都消费清洗阶段切好的 sections。下面是单份文档索引的完整步骤。
+
+```mermaid
+flowchart TD
+    SEC[sections 列表<br/>来自清洗阶段 SectionSplitter]
+    SEC --> A{A 元数据线}
+    SEC --> B{B 检索索引线}
+
+    A --> A1["① 脚本生成 doc_id<br/>{category}__{文件名}__{序号}"]
+    A1 --> A2["② LLM 第1步分析<br/>输入: md 全文 + sections 标题<br/>输出: category/关键实体/related_docs"]
+    A2 --> A3["③ LLM 第2步生成<br/>输入: 第1步结果 + sections<br/>输出: title/summary 3-5句/keywords"]
+    A3 --> A4["④ 脚本回填行号<br/>sections.line_start/end<br/>(确定性,不靠 LLM)"]
+    A4 --> A5["⑤ 组装 doc 条目<br/>按 doc_id 增量更新 index.json"]
+    A5 --> A6["⑥ 追加 ingest_log.jsonl"]
+
+    B --> B1["⑦ BM25 倒排<br/>jieba 分词每个 section<br/>构建/追加倒排表"]
+    B1 --> B2["⑧ 向量索引(可插拔)<br/>bge-m3 编码每个 section<br/>追加 vectors.npy + vector_meta.json"]
+    B2 --> B3["⑨ section_id ↔ 向量行号映射"]
+
+    style A2 fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    style A3 fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    style A4 fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style B1 fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style B2 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+```
+
+#### 5.2.1 元数据线（写 index.json）逐步
+
+| 步 | 执行者 | 输入 | 产出 | 关键点 |
+| --- | --- | --- | --- | --- |
+| ① doc_id | 脚本 | raw 文件路径 | `{category}__{basename}__{seq}` | 稳定 ID，增量更新依据；seq 防同名 |
+| ② LLM 第1步 | LLM | md 全文 + sections 标题列表 | `category` / 关键实体 / `related_docs` | related_docs 靠 LLM 跨文档语义关联，给出候选 doc_id |
+| ③ LLM 第2步 | LLM | 第1步结果 + sections | `title` / `summary`(3-5句) / `keywords` | 摘要服务于 index 导航，关键词辅助检索 |
+| ④ 行号回填 | 脚本 | md 文件 | `sections[].line_start/end` | **LLM 不碰行号**（会数错），脚本解析标题行号，确定性 |
+| ⑤ 更新 index | 脚本 | 组装好的 doc 条目 | index.json 该条覆盖/追加 | 按 doc_id 增量：存在则覆盖，不存在则 append |
+| ⑥ 记日志 | 脚本 | doc_id/title | ingest_log.jsonl 追加一行 | append-only，可 grep |
+
+#### 5.2.2 检索索引线逐步
+
+| 步 | 执行者 | 输入 | 产出 | 关键点 |
+| --- | --- | --- | --- | --- |
+| ⑦ BM25 倒排 | 脚本 | 各 section 的 body 文本 | 倒排表（term → section 列表 + 词频） | jieba 中文分词；每 section 一个文档单元；IDF 全库统计 |
+| ⑧ 向量索引 | 脚本(可插拔) | 各 section 的 body 文本 | vectors.npy + vector_meta.json | bge-m3 编码；CPU；环境未装则跳过，不影响 BM25 |
+| ⑨ 映射 | 脚本 | section_id + 向量行号 | vector_meta.json | section_id ↔ 向量行号，便于 read_section 反查 |
+
+> **三单元一致性**：section 既是 BM25 的文档单元（步⑦），又是向量的编码单元（步⑧），又是 read_section 的加载单元。三者共享同一 section_id，无需额外对齐。
+
+#### 5.2.3 LLM 两步归纳的 prompt 结构
 
 ```
-LLM 第1步 分析: 识别 文档类型 / 关键实体 / 所属分类 / 关联文档(related_docs)
-LLM 第2步 生成: 摘要 / 关键词 / 章节标题
-脚本回填:       sections.line_start/end (解析 markdown 标题行号)
-→ 更新 index.json (按 doc_id 增量更新该条)
+第1步(分析) prompt:
+  系统: 你是企业知识库编目员。
+  输入: 文档 markdown 全文 + sections 标题列表
+  任务: 输出 JSON {category, entities[], related_docs[]}
+  约束: category ∈ {data_product, process, data_table};
+        related_docs 给出疑似关联文档的 doc_id 候选(允许空)
+
+第2步(生成) prompt:
+  系统: 你是企业知识库编目员。
+  输入: 第1步 JSON + sections 标题列表
+  任务: 输出 JSON {title, summary(3-5句), keywords[3-8]}
+  约束: summary 用于全局导航,要点到为止;keywords 含核心字段名/编号
 ```
+
+两步分离的好处：第1步的 `related_docs` 依赖跨文档全局视野，可独立重跑；第2步纯文本归纳，单文档即可。任一步失败只重跑那一步，不波及另一路。
 
 ### 5.3 `/index` 端点
 
@@ -286,7 +446,51 @@ class RRFFuser:
         """RRF: score = Σ 1/(k + rank_i); section 级去重(同 section 取最高分)"""
 ```
 
-### 6.2 RRF 参数
+### 6.2 一次查询的完整流程（怎么查）
+
+从 `/search?q=...` 进来到 section 级结果出去，全程毫秒级。这是平台"怎么查"的核心。
+
+```mermaid
+flowchart TD
+    Q["/search?q=order_id&top_k=10"] --> PARSE[解析 q, top_k]
+    PARSE --> FAN{注册了几路 Retriever?}
+
+    FAN -->|BM25 路| BM1[jieba 分词 query]
+    BM1 --> BM2[查 BM25 倒排表]
+    BM2 --> BM3[各 section 打分<br/>BM25 = IDF·TF 归一化]
+    BM3 --> BM4[取 top_n=50 section<br/>附 source='bm25']
+
+    FAN -->|向量路(可插拔)| V1[bge-m3 编码 query]
+    V1 --> V2[余弦相似 vs vectors.npy]
+    V2 --> V3[取 top_n=50 section<br/>附 source='vector']
+
+    BM4 --> RRF[RRFFuser.fuse]
+    V3 --> RRF
+    RRF --> DEDUP["section 级去重<br/>同 (doc_id, section_id) 取最高分"]
+    DEDUP --> SCORE["重排:<br/>score = Σ 1/(k + rank_i)<br/>k=60"]
+    SCORE --> TK[截断 top_k=10]
+    TK --> SNIP[每条按 line_start/end<br/>从 md 切 snippet]
+    SNIP --> OUT["返回 [{doc_id,section_id,title,snippet,score}]"]
+
+    style RRF fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style DEDUP fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style SNIP fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+```
+
+**逐步说明**：
+
+1. **解析**：从 query string 取 `q` 和 `top_k`（默认 10）。
+2. **分发给各 Retriever**：注册了哪几路就并发跑哪几路。P0 只有 BM25 路；向量就绪后自动多一路。
+3. **BM25 路**：jieba 分词 query → 查倒排表 → 各 section 打 BM25 分（IDF·TF 归一化）→ 取 top_n=50。
+4. **向量路**：bge-m3 编码 query → 余弦相似对比 vectors.npy → 取 top_n=50。
+5. **RRF 融合**：对每个候选，`score = Σ 1/(k + rank_i)`（k=60）。各路 rank 从 1 计。
+6. **section 级去重**：同一 `(doc_id, section_id)` 在多路都命中时，只保留最高分项（RRF 已自然合并，去重是兜底）。同文档不同 section 可并存。
+7. **截断 top_k**：取分数最高的 10 条。
+8. **切 snippet**：每条按 `sections[].line_start/end` 从 `md/{doc}.md` 切出该段文本作为 snippet 返回。
+
+> **关键**：返回的是 section 级片段而非整篇。L2 Agent 拿到片段判断是否够用；不够再 `read_section` 精准加载那一段原文。**少喂 LLM、少往返**——这是"更快更准更好用"的工程来源。
+
+### 6.3 RRF 参数
 
 | 参数 | 值 | 说明 |
 | --- | --- | --- |
@@ -295,14 +499,14 @@ class RRFFuser:
 | 最终 top_k | 10(默认,`?top_k=` 可调) | Agent 多跳够用 |
 | 去重粒度 | section 级 | 同一 section 只保留最高分;同文档多 section 可并存 |
 
-### 6.3 P0 运行形态
+### 6.4 P0 运行形态
 
 - **测试/验证阶段**：仅 BM25 单路（向量环境未装），RRF 单路直通。**全局框架完整可跑**。
 - **向量就绪后**：注册 VectorRetriever，自动变两路 RRF 融合。**不动 `/search` 外部契约**。
 
 > 这满足用户"测试时不用装向量环境、先看全局"的诉求：框架完整,向量是可插入增强件。
 
-### 6.4 为什么比普通向量库"更快更准更好用"
+### 6.5 为什么比普通向量库"更快更准更好用"
 
 | 维度 | 普通向量库 | 本平台 | 优势来源 |
 | --- | --- | --- | --- |
@@ -318,29 +522,78 @@ class RRFFuser:
 
 ## 七、自更新与维护（Karpathy 原理落地）
 
-本章是平台"自更新、好维护"的核心,与检索能力并列为一等公民。
+本章是平台"自更新、好维护"的核心,与检索能力并列为一等公民。基于 Karpathy 三层编译思想：raw 不可变 → 生成物可重建 → 维护近零。
 
-### 7.1 增量摄入
+### 7.1 三种更新场景与统一增量流程
 
-raw/ 加新文档或改旧文档时,**只重处理那一份**,不全量重建。
+后续更新分三类，但走同一条增量摄入流水线（只重处理变更的那一份，不全量重建）：
 
+| 场景 | 触发 | 处理对象 |
+| --- | --- | --- |
+| **新增文档** | raw/ 放入新文件 | 该文件全流程索引 |
+| **修改文档** | raw/ 中已有文件内容变了 | 该文件重清洗 + 重索引（覆盖旧条目） |
+| **删除文档** | raw/ 中文件被移走 | 删除该 doc_id 的 index 条目 + 向量行 |
+
+### 7.2 增量摄入完整流程（后续怎么更新）
+
+```mermaid
+flowchart TD
+    START([更新触发: kb watch 监听到变更 / kb ingest 手动]) --> SCAN[扫描 raw/ 全目录]
+    SCAN --> HASH[对每个 raw 文件算 sha256]
+    HASH --> CMP{对比 hash.json}
+
+    CMP -->|哈希不变| SKIP[跳过,不动]
+    CMP -->|新文件(无记录)| ADD[标记: 新增]
+    CMP -->|哈希变了| MOD[标记: 修改]
+    CMP -->|record 有但文件没了| DEL[标记: 删除]
+
+    ADD --> CLEAN[清洗: Cleaner.to_markdown + SectionSplitter]
+    MOD --> CLEAN
+    CLEAN --> WRITE_MD[写 md/{cat}/{doc_id}.md]
+    WRITE_MD --> INDEX[索引: §5.2 全流程<br/>doc_id→LLM两步→行号回填→index]
+    INDEX --> VEC[向量: bge-m3 编码 sections<br/>追加 vectors.npy + vector_meta]
+    VEC --> UPD_HASH[更新 hash.json 该条]
+    UPD_HASH --> LOG_ADD[ingest_log.jsonl 追加 ingest 行]
+
+    DEL --> DEL_INDEX[删 index.json 该 doc 条目]
+    DEL_INDEX --> DEL_VEC[删该 doc 的向量行<br/>重排 vector_meta]
+    DEL_VEC --> DEL_MD[删 md/{cat}/{doc_id}.md]
+    DEL_MD --> DEL_HASH[hash.json 删该条]
+    DEL_HASH --> LOG_DEL[ingest_log.jsonl 追加 delete 行]
+
+    LOG_ADD --> DONE([完成])
+    LOG_DEL --> DONE
+
+    style CMP fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    style CLEAN fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style INDEX fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    style DEL_VEC fill:#fce4ec,stroke:#c2185b,stroke-width:2px
 ```
-检测变更(见 7.2) → 清洗该文档 → LLM 两步 → 更新该 doc 的 index 条目 + 向量 + 追加 log
-```
 
-按 `doc_id` 增量更新 index.json：存在则覆盖该条,不存在则追加。向量同步更新该 doc 的 section 向量。
+**关键点**：
 
-### 7.2 变更检测
+- **变更检测是入口**：无论 watch 自动还是 ingest 手动，第一步都是扫 raw/ 算哈希、对比 hash.json。这是"只处理变更那一份"的依据。
+- **新增/修改走同一路**：都是清洗→索引→向量→更新 hash→记日志。区别只在 index 更新时是 append 还是覆盖（按 doc_id 判定）。
+- **删除是反向操作**：index 条目、向量行、md 文件、hash 记录、log 逐项清理。向量行删除后需重排 vector_meta 的行号映射。
+- **不全量重建**：每次只动变更涉及的文档，1000 份库更新一份只花一份的时间。
 
-`hash.json` 记录每份 raw 文档的内容哈希。
+### 7.3 变更检测（hash.json）
+
+`hash.json` 记录每份 raw 文档的内容哈希，是增量更新的判据。
 
 ```json
-{"data_table__order_detail__001": {"hash": "sha256...", "path": "raw/data_table/order_detail.xlsx", "ingested_at": "2026-07-30"}}
+{
+  "data_table__order_detail__001": {
+    "hash": "sha256:a3f9...",
+    "path": "raw/data_table/order_detail.xlsx",
+    "ingested_at": "2026-07-30T10:00:00"
+  }
+}
 ```
 
-摄入时比对：哈希不变 → 跳过;变了或新增 → 重摄入。
+摄入时比对：哈希不变 → 跳过；变了或新增 → 重摄入；记录在但文件消失 → 删除。哈希基于文件字节内容（非元数据 mtime），避免 touch 但内容没变误触发。
 
-### 7.3 Lint 自检（确定性脚本,P0）
+### 7.4 Lint 自检（确定性脚本,P0）
 
 | 检查项 | 方法 | 严重度 |
 | --- | --- | --- |
@@ -348,32 +601,49 @@ raw/ 加新文档或改旧文档时,**只重处理那一份**,不全量重建。
 | 缺交叉引用 | 两文档关键词高度重叠但互无 related_docs | warn |
 | 格式校验 | ingest_log.jsonl 每行可 grep 解析;index.json schema 合法 | error |
 | 数据缺口 | 某分类下文档数异常少(如 data_table 仅 3 份) | info |
+| 向量一致性 | vector_meta.json 的 section_id 与 index.json sections 对齐 | error |
 
-输出 `lint_report.json`,可 CI 跑。**周期 LLM Lint（矛盾/过时/缺概念页）放 P1**。
+输出 `lint_report.json`,可 CI 跑。**周期 LLM Lint（矛盾/过时/缺概念页）放 P1**——P0 用确定性脚本即可抓住结构性问题。
 
-### 7.4 可重建性
+### 7.5 可重建性（Karpathy "raw 是唯一真相源"兜底）
 
-`md/`、`index.json`、`vectors.npy`、`ingest_log.jsonl` 全是 raw 的生成物。`kb rebuild` 可从 raw + hash.json 完整重建所有生成物（清空生成物 → 全量重摄入）。这是 Karpathy "raw 是唯一真相源"的兜底。
+`md/`、`index.json`、`vectors.npy`、ingest_log.jsonl 全是 raw 的生成物。`kb rebuild` 可从 raw 完整重建所有生成物：
 
-### 7.5 自更新触发
+```mermaid
+flowchart LR
+    RAW[(raw/ 唯一真相源)] --> RB[kb rebuild]
+    RB --> CLR[清空生成物:<br/>md/ index.json vectors.npy<br/>vector_meta.json hash.json]
+    CLR --> REING[全量重摄入:<br/>遍历 raw/ 逐份走 §7.2 增量流程]
+    REING --> GEN[(重新生成全部产物)]
+    style CLR fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style RAW fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+```
+
+这是 Karpathy 原理的安全网：生成物损坏、schema 升级、清洗规则改了，都能一键从 raw 重建，不丢任何知识。hash.json 也一并重建。
+
+### 7.6 自更新触发
 
 | 方式 | 命令 | 场景 |
 | --- | --- | --- |
 | 文件监听(自动) | `kb watch` | 常驻监听 raw/ 变更,自动增量摄入 |
 | 手动摄入 | `kb ingest <path>` | 指定文档/目录摄入 |
 | 手动 Lint | `kb lint` | 触发确定性检查 |
-| 全量重建 | `kb rebuild` | 生成物损坏时从 raw 重建 |
+| 全量重建 | `kb rebuild` | 生成物损坏/schema 升级时从 raw 重建 |
 
-### 7.6 ingest_log.jsonl 格式
+`kb watch` 用 watchdog 库监听 raw/ 文件系统事件（create/modify/move），事件触发后走 §7.2 流程。P0 也可只用手动 `kb ingest`，watch 是增强件。
 
-append-only,每行一条,可 grep 解析。
+### 7.7 ingest_log.jsonl 格式
+
+append-only,每行一条,可 grep 解析。是变更时间线的唯一来源。
 
 ```json
-{"ts": "2026-07-30T10:00:00", "type": "ingest", "doc_id": "data_table__order_detail__001", "title": "订单明细表字段说明"}
-{"ts": "2026-07-30T10:05:00", "type": "lint", "issues": 3}
+{"ts": "2026-07-30T10:00:00", "type": "ingest", "doc_id": "data_table__order_detail__001", "title": "订单明细表字段说明", "action": "add"}
+{"ts": "2026-07-30T10:05:00", "type": "ingest", "doc_id": "data_table__order_detail__001", "title": "订单明细表字段说明", "action": "modify"}
+{"ts": "2026-07-30T11:00:00", "type": "delete", "doc_id": "process__old_flow__003"}
+{"ts": "2026-07-30T11:30:00", "type": "lint", "issues": 3}
 ```
 
-grep 示例：`grep '"type":"ingest"' ingest_log.jsonl | tail -5` 看最近 5 次摄入。
+grep 示例：`grep '"type":"ingest"' ingest_log.jsonl | tail -5` 看最近 5 次摄入；`grep '"doc_id":"data_table__order_detail__001"'` 看某文档的全部变更史。
 
 ---
 
