@@ -13,9 +13,9 @@
 | --- | --- | --- | --- |
 | **L3 交互层** | 用户提问、对话、展示带来源引用的答案 | **Open WebUI**（本项目 docker-compose 部署） | 📦 待接入 |
 | **L2 Agent 层** | 拆解问题、多跳检索编排、自评重试、总结带引用返回 | **pi Agent 服务**（TypeScript，暴露 OpenAI 兼容端点） | 🔨 待建 |
-| **L1 知识库层** | 公司业务知识的归纳整理 + 对外提供准确检索 API/CLI | **KB Service**（TypeScript/Node 服务 + Python 摄入脚本；PDF→MD + index.json + 检索 API） | 🔨 待建 |
+| **L1 知识库层** | 公司业务知识的归纳整理 + 对外提供准确检索 API/CLI | **KB Service**（Python/FastAPI 服务 + 摄入脚本；PDF/Word/Excel→MD + index.json + BM25/向量 RRF 检索 API） | 🔨 待建 |
 
-**核心解耦思想**：L2 不直接读文件，只调 L1 的 API；L1 内部检索机制可演进（BM25→混合→+ColPali）而 L2 不变；L3 不感知 L1/L2 内部，只把 L2 当成一个"会查公司知识库的模型"。
+**核心解耦思想**：L2 不直接读文件，只调 L1 的 API；L1 内部检索机制可演进（BM25→BM25+向量 RRF→更先进模型）而 L2 不变；L3 不感知 L1/L2 内部，只把 L2 当成一个"会查公司知识库的模型"。
 
 ```mermaid
 flowchart TD
@@ -60,10 +60,12 @@ knowledge_base/
 │   ├── process/
 │   └── data_table/
 ├── index.json                    # 全局目录：标题/摘要/关键词/章节锚点/路径
-└── assets/                       # 提取的内嵌图片 + 视觉模型生成的描述（借鉴 llm_wiki）
+└── vectors/                      # section 向量(bge-m3,可插拔): vectors.npy + vector_index.json(稳定键↔行号)
 ```
 
 `index.json` 是 L1 的导航核心——Karpathy 原话"中等规模 index 出奇好用，可不需要向量库"。1000 份规模，Agent 先读 index 定位再下钻原文。
+
+> 说明：P0 不做图片提取/视觉描述/ColPali 多模态增强（数据表/产品文档以结构化文本为主，多模态收益低、自托管成本高，留待 P2+ 视真实需求再评估）。L1 聚焦"文本清洗 + section 级 BM25/向量 RRF 检索"。
 
 ### 2.3 对外 API 契约（L2 调用）
 
@@ -80,7 +82,7 @@ L1 暴露一组 HTTP 端点（也提供等价 CLI 便于人工/运维排查）�
 
 **关键设计**：
 
-- **检索机制对 L2 透明**：`/search` 当前实现为 BM25，未来换成混合检索（BM25+向量+RRF）甚至挂 ColPali，L2 调用不变——契约稳定，内部演进。
+- **检索机制对 L2 透明**：`/search` 当前实现为 BM25，未来换成混合检索（BM25+向量+RRF），L2 调用不变——契约稳定，内部演进。
 - **权限隔离**（借鉴 gbrain 的 source/scope 思路）：`/categories` 等端点按调用方身份（API key / 部门标签）过滤可见分类，实现多部门数据隔离。
 - **只读边界**：L1 对 L2 只暴露查询，**不暴露写入/执行**——守住"仅查文档、不执行动作"的硬约束。
 
@@ -93,7 +95,6 @@ flowchart LR
         R2 --> R3[LLM 辅助生成摘要/关键词/章节锚点]
         R3 --> R4[index.json]
         R2 --> R5[(md/ 目录)]
-        R3 --> R6[图片提取+视觉描述]
     end
     subgraph 在线服务
         Q[/API 调用/] --> S{路由}
@@ -186,7 +187,7 @@ flowchart LR
 | L2 → LLM | OpenAI 兼容（经 llm_gateway） | 推理与生成都走 Doubao 网关 |
 | L1 内部 | 文件系统 + BM25 索引 | md/ 目录 + index.json + 倒排索引 |
 
-**演进不破坏契约**：L1 检索升级（BM25→混合→ColPali）只动内部，L2 调用不变；L2 换 agent 框架只动自己，L3/L1 不变；L3 换前端（Open WebUI→自研）只动 UI，L2 不变。
+**演进不破坏契约**：L1 检索升级（BM25→混合 RRF）只动内部，L2 调用不变；L2 换 agent 框架只动自己，L3/L1 不变；L3 换前端（Open WebUI→自研）只动 UI，L2 不变。
 
 ---
 
@@ -233,7 +234,7 @@ sequenceDiagram
 | index 导航 + 按需加载原文 | Karpathy / llm_wiki | L1 API + L2 工具 |
 | 答案带引用 + gap analysis（标注未覆盖） | gbrain | L2 合成阶段 |
 | 权限按 source/scope 隔离 | gbrain | L1 API 按身份过滤 |
-| 多模态图片提取+视觉描述 | llm_wiki | L1 assets/（数据表/产品介绍文档） |
+| 多模态图片提取+视觉描述 | llm_wiki | （P0 不采纳：自托管成本高、文本为主收益低，留待 P2+ 视需求评估） |
 | Agent 自主规划+自评重试 | Agentic RAG / 你的需求 | L2 pi 主循环 |
 
 ---
@@ -250,7 +251,7 @@ sequenceDiagram
   - 验收：多跳问题能跨文档取全、带引用返回
 - **P2｜L3 集成 + 打磨**
   - Open WebUI 加 kb-agent 连接；流式 + 引用渲染
-  - L1 挂 ColPali（图表密集文档可选增强）
+  - （可选）评估多模态增强：图表密集文档是否值得引入图片提取/视觉描述/ColPali（P0 不做，视 P2+ 真实需求再定）
   - 验收：业务人员真实提问端到端走通
 
 **为什么 L1 先行**：L1 是地基，契约一旦定下，L2/L3 可并行设计；且 L1 能用 CLI 独立验证检索质量，不依赖 Agent 成熟度——风险最低、回报最早。

@@ -153,9 +153,12 @@ Karpathy（前特斯拉 AI 负责人）提出的 LLM-Wiki 方法论核心三条�
 | Word 清洗 | Pandoc | 转 markdown 质量最好 |
 | 检索粒度 | section 级 | 检索单元=索引单元=加载单元，三层一致 |
 | 检索底座结构 | Retriever 接口 + 多实现 + RRF 融合器（可插拔） | 契约不变、内部可演进；P0 单路也能跑 |
-| 自更新触发 | `kb watch` 文件监听 + `kb ingest`/`kb lint` 手动命令 | 自动化够用、可控 |
+| 自更新触发 | `kb watch` 文件监听(持久化变更队列+断点续跑) + `kb ingest`/`kb lint` 手动 | 自动化够用、可控、崩溃不丢变更（§9.6.1） |
+| 路径安全 | `is_safe_path` 守卫(raw/ 内才接受) | 防路径注入/越界写入（§7.1.2） |
+| 长文档摄入 | 分块 + 断点续跑 | 超长文档不超 LLM 上下文，中断可续（§7.1.3） |
+| 多模态增强 | **P0 不做**（图片提取/视觉描述/ColPali） | 文本为主、自托管成本高；留待 P2+ 视真实需求评估（F11） |
 
-> ⚠️ **待修文档不一致**：`architecture_3layer.md` 第 16 行写"TypeScript/Node 服务"，本 PRD 明确为 Python/FastAPI；第 63 行 `assets/` 目录、第 235 行"多模态图片提取+视觉描述"应删除（无图片场景）。属已知待修，不阻塞 P0。
+> ✅ **文档一致性已修（F11）**：`architecture_3layer.md` 第 16 行已对齐为 Python/FastAPI；`assets/` 目录已移除、第 235 行"多模态图片提取+视觉描述"已降级为"P0 不采纳"。P0 不做图片提取/视觉描述/ColPali 多模态增强（文本为主、自托管成本高），留待 P2+ 视真实需求评估。
 
 ---
 
@@ -171,7 +174,7 @@ Karpathy（前特斯拉 AI 负责人）提出的 LLM-Wiki 方法论核心三条�
 │   raw/ ──变更检测──▶ Cleaner ──▶ md/ ──▶ IndexBuilder(LLM两步) ──▶ index.json    │
 │        (文件监听)    (按类型分发)         (摘要/关键词/锚点/关联)                    │
 │                                              │                                    │
-│                                              ├──▶ 向量索引(vectors.npy)            │
+│                                              ├──▶ 向量索引(vectors/ 稳定键)       │
 │                                              └──▶ ingest_log.jsonl (append)       │
 │                                                                                   │
 │   Lint(确定性脚本) ──周期/手动──▶ lint_report.json (孤儿页/缺链接/格式/数据缺口)    │
@@ -200,7 +203,7 @@ md/data_table/order_detail.md              ← 清洗产物(section 切分, 保�
   │  [归纳] LLM 两步: 识别类型/实体/关联 → 生成摘要/关键词/锚点/related
   ▼
 index.json::documents[doc_id]              ← 导航核心
-  │  doc_id = data_table__order_detail__001
+  │  doc_id = data_table_order_detail__a3f9c1e2
   │  sections = [{section_id, title, line_start, line_end}]
   │  related_docs = [...]
   │  [索引] BM25 倒排(over md sections) + 向量(bge-m3 over sections)
@@ -244,8 +247,9 @@ l1_kb/
 │   ├── index.json                     # 全局目录(标题/摘要/关键词/章节锚点/related_docs)
 │   ├── ingest_log.jsonl               # 摄入时序日志(append-only, 可 grep)
 │   ├── hash.json                      # 变更检测:每份 raw 文档的哈希
-│   ├── vectors.npy                    # section 向量(bge-m3, 内存加载+落盘)
-│   ├── vector_meta.json               # 向量元数据(section_id ↔ 向量行号)
+│   ├── vectors/                       # section 向量存储(主键删除模式)
+│   │   ├── vectors.npy                # bge-m3 向量(内存加载+落盘)
+│   │   └── vector_index.json          # 稳定键→行号映射: doc_id__section_id ↔ row
 │   └── lint_report.json               # 最近一次 lint 报告
 ├── ingest/                            # 摄入脚本(python)
 ├── service/                           # 检索 API 服务(FastAPI)
@@ -255,7 +259,8 @@ l1_kb/
 ### 5.1 raw 不可变原则
 
 - `raw/` 是唯一真相源，**LLM/服务只读不写**。
-- `md/`、`index.json`、`vectors.npy`、`ingest_log.jsonl` 全是 raw 的**生成物**，可随时从 raw 重建（见 §7.4 可重建性）。
+- `md/`、`index.json`、`vectors/`、`ingest_log.jsonl` 全是 raw 的**生成物**，可随时从 raw 重建（见 §9.5 可重建性）。
+- **向量存储用稳定字符串键**（`doc_id__section_id`）为主键，删除按键删，**不重排活跃行号**（见 §9.2.2）——P0 用 dict+落盘，P1 升级 LanceDB 时对齐 `page_id` 主键模式。
 
 ---
 
@@ -303,18 +308,21 @@ CLEANERS = {".pdf": PdfCleaner, ".docx": WordCleaner, ".xlsx": ExcelCleaner, ".m
 
 ```mermaid
 flowchart LR
-    PDF[原始 PDF] --> M1[PyMuPDF4LLM.to_markdown<br/>主体文本+标题层级]
-    PDF --> M2[pdfplumber.extract_tables<br/>抽取表格]
-    M1 --> MERGE[合并: 文本流中表格位置<br/>插入 pipe 表]
-    M2 --> MERGE
-    MERGE --> MD[结构化 markdown<br/>ATX标题 + pipe表]
-    style MERGE fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    PDF[原始 PDF] --> M1[PyMuPDF4LLM.to_markdown<br/>权威: 主体文本+标题层级+表格]
+    M1 --> CHK{表格是否残缺?<br/>启发式: 表格行<2 或空格占比高}
+    CHK -->|否| MD[结构化 markdown]
+    CHK -->|是| M2[pdfplumber.extract_tables<br/>仅兜底抽取残缺表]
+    M2 --> INS[按页码就近插入 pipe 表<br/>不做坐标强对齐]
+    INS --> MD
+    style M1 fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    style CHK fill:#fff3e0,stroke:#f57c00,stroke-width:2px
 ```
 
-- **主流程**：`PyMuPDF4LLM.to_markdown()` 负责正文与标题层级（它内部已处理分栏、阅读顺序）。
-- **表格兜底**：PyMuPDF4LLM 对复杂表格可能转不全，用 `pdfplumber.extract_tables()` 抽取，转成 pipe 表后按页码+坐标回填到正文对应位置。
-- **边界处理**：页眉页脚去重；跨页表格合并；空行压缩。
-- **为什么两库并用**：PyMuPDF4LLM 文本强但表格弱，pdfplumber 表格强但不输出文本流，互补。
+- **PyMuPDF4LLM 为权威**：正文、标题层级、表格均以其输出为准（它内部已处理分栏、阅读顺序）。
+- **pdfplumber 仅兜底**：当 PyMuPDF4LLM 输出的表格明显残缺（行数<2、空格占比过高）时，才用 `pdfplumber.extract_tables()` 抽取该页表格，转 pipe 表后**按页码就近插入**正文位置——**不做坐标强对齐回填**。
+- **边界处理**：页眉页脚去重；空行压缩。
+- **为什么改**（评审 A1）：原设计"双库并按页码+坐标合并"脆弱——两库对同一表格常重复抽取、坐标错位、跨页合并出错。改为"权威 + 兜底"，冲突最小、最稳。
+- **参考**：[llm_wiki_borrow_and_adapt_plan.md](../../llm_wiki_borrow_and_adapt_plan.md) F3。
 
 #### 6.2.2 Word（WordCleaner / Pandoc）
 
@@ -351,6 +359,11 @@ flowchart TD
 - **每 sheet = 一个 section**（对应决策）：`## {sheet名}` 作为标题，下面整张表。这样 `read_section(doc_id, sheet名)` 精准取一个表，BM25 既能召回表名也能召回字段名。
 - **空 sheet 跳过**；合并单元格预处理（`fillna(method='ffill')`）。
 - **为什么整表而非行**：行级上下文太碎、BM25 信号弱；整表保留字段名+类型+说明上下文，召回质量最高。
+- **宽表分栏**（评审 A2，F4）：列数过多（默认 >20 列）的宽表，整表塞进单 section 会超出向量编码上限、稀释 BM25 信号。处理策略（二选一，按列语义选）：
+  - **字段分组**：按列名前缀/语义分组（如 `order_*` / `amount_*` / `*_at` 时间列），每组拆成独立子 section `## {sheet名} — {组名}`，每组保留表头行；同 sheet 各子 section section_id 连续。
+  - **列上限截断**：列数 ≤ 阈值时整表保留；超过则按固定列数（默认 15）分批，每批一个子 section，重复表头。
+  - 分组优先（语义更清晰），仅当无法分组时退回固定列数截断；并在 section 标题标注列范围。
+- **表格 section 豁免 200 行阈值**：宽表/多行表 section 不触发 §6.3 规则5 的"过长二次切分"——表格不能按空行切碎，否则字段说明断行。
 
 #### 6.2.4 Markdown（MarkdownCleaner）
 
@@ -375,9 +388,9 @@ flowchart LR
 2. 两个相邻标题行之间为一个 section：`line_start` = 标题行号，`line_end` = 下一个标题行号 - 1（末尾 section 到文件末）。
 3. section 内容 = 标题 + 该段正文（含表格）。
 4. **无标题文档兜底**：整篇作为一个 section `s0`。
-5. **过长 section 兜底**：单个 section 超过 N 行（默认 200）时，按段落空行二次切分，避免单段过大稀释 BM25 信号。
+5. **过长 section 兜底**：单个 section 超过 N 行（默认 200）时，按段落空行二次切分，避免单段过大稀释 BM25 信号。**表格 section 豁免**（见 §6.2.3，表格不可按空行切碎）。
 
-**section_id 稳定**：按出现顺序 `s0/s1/...`，重摄入同一文档时顺序一致，保证向量索引行号稳定。
+**section_id 稳定**：按出现顺序 `s0/s1/...`，重摄入同一文档时顺序一致，保证向量索引稳定键 `doc_id__section_id` 稳定（行号不外泄，见 §9.2.2）。
 
 ### 6.4 一个 Excel 文档的完整切分示例
 
@@ -413,7 +426,7 @@ L1 导航核心,Agent 查询入口。LLM 两步归纳生成。
   "indexed_at": "2026-07-30T00:00:00",
   "documents": [
     {
-      "doc_id": "data_table__order_detail__001",
+      "doc_id": "data_table_order_detail__a3f9c1e2",
       "title": "订单明细表字段说明",
       "category": "data_table",
       "source_path": "raw/data_table/order_detail.xlsx",
@@ -430,7 +443,7 @@ L1 导航核心,Agent 查询入口。LLM 两步归纳生成。
           "level": 2
         }
       ],
-      "related_docs": ["data_table__order__002"]
+      "related_docs": ["data_table_order__7b2e0d91"]
     }
   ]
 }
@@ -440,14 +453,62 @@ L1 导航核心,Agent 查询入口。LLM 两步归纳生成。
 
 | 字段 | 来源 | 说明 |
 | --- | --- | --- |
-| `doc_id` | 脚本生成 | `分类__文件名(去扩展名)__序号`;稳定 ID,增量更新依据 |
+| `doc_id` | 脚本生成 | `{raw相对路径slug}__{sha256前8位}`;**稳定 ID**(派生自路径+内容哈希,不依赖 LLM 分类),增量更新依据。见 §7.1.1 |
 | `title` | LLM | 文档标题 |
-| `category` | LLM 第1步 | data_product / process / data_table |
+| `category` | LLM 第1步 | data_product / process / data_table(**仅为字段,不进 doc_id**;LLM 可重分类而不影响 doc_id 稳定) |
 | `summary` | LLM 第2步 | 3-5 句摘要 |
 | `keywords` | LLM 第2步 | 检索辅助 |
 | `sections.line_start/end` | **脚本回填** | 解析 markdown 标题行号,LLM 不参与(避免数错行) |
-| `related_docs` | LLM 第1步 | 关联文档 doc_id 列表(非 Obsidian wikilink) |
+| `related_docs` | LLM 第1步(派生量,可重算) | 关联文档 doc_id 列表;**增量摄入时双向回填**(A 关联 B 则 B 回指 A),见 §9.2.1 |
 | `ingested_at` | 脚本 | 摄入时间戳 |
+
+#### 7.1.1 doc_id 稳定性（评审 B2 修复）
+
+**原设计问题**：曾用 `{category}__{basename}__{seq}`——但 `category` 是 LLM 第1步赋值，重分类会让 doc_id 漂移；`seq` 未定义；漂移后 `related_docs` 全部断链。
+
+**修订**：doc_id 派生自**稳定输入**，与 LLM 判断解耦：
+
+```
+doc_id = slug(raw 相对路径) + "__" + sha256(文件字节)[:8]
+例: raw/data_table/order_detail.xlsx
+  → doc_id = "data_table_order_detail__a3f9c1e2"
+```
+
+- `category` 降为普通字段，LLM 重分类只改 `category` 字段，**不动 doc_id**。
+- 同路径内容变了 → sha256 变 → doc_id 变 → 视为"修改"（走增量覆盖，related_docs 双向回填修复引用）。
+- 路径是稳定的真相源（raw 目录结构由人维护），sha256 防内容碰撞。
+- `related_docs` 存的是 doc_id；因 doc_id 稳定，引用不会因重分类断链。
+
+> 评审对照：见 [llm_wiki_borrow_and_adapt_plan.md](../../llm_wiki_borrow_and_adapt_plan.md) F1。
+
+#### 7.1.2 路径安全守卫 `is_safe_path`（评审 B7 / F9，借鉴 llm_wiki `isSafeIngestPath`）
+
+摄入只接受 **`raw/` 目录内**的文件，杜绝路径注入与越界写入：
+
+```python
+def is_safe_path(raw_root: Path, target: Path) -> bool:
+    """target 必须解析后在 raw_root 之内, 且仍是文件(非设备/管道/软链跳出)。"""
+    root = raw_root.resolve()
+    real = target.resolve()
+    try:
+        real.relative_to(root)
+    except ValueError:
+        return False
+    return real.is_file() and not real.is_symlink()
+```
+
+- `kb ingest <path>`、`kb watch` 事件、`kb rebuild` 全部入口先过 `is_safe_path`，不通过则跳过并记 warn 日志。
+- 防御 `../` 越界、软链接跳出 raw、传入设备文件等。
+- 对齐 llm_wiki `isSafeIngestPath`（同源思路，Python 重实现，非复制其代码）。
+
+#### 7.1.3 长文档分块摄入 + 断点续跑（评审 A3 / F5·F10，借鉴 llm_wiki `analyzeLongSourceInChunks`）
+
+单份超长文档（清洗后 markdown 超过 token 上限，如大型数据表字典/厚流程手册）无法一次喂给 LLM 第1步：
+
+- **分块**：按 section 边界切块，每块控制在 LLM 上下文上限内（留余量给 prompt），逐块送 LLM 第1步分析，再合并各块的 `entities`/`related_docs` 候选（去重）。第2步（title/summary/keywords）在合并结果上做一次全局归纳。
+- **断点续跑**：每块处理完即落盘一个"块完成"标记（写入 `ingest_log.jsonl` 的 chunk 级行，或 `kb_state/{doc_id}.chunks.json`）。LLM 调用中断/失败时，`kb ingest --resume` 跳过已完成块，只重跑失败块，不从头再来。
+- **与原子提交（F5）配合**：单份文档所有块 + 行号回填 + index 更新 + 向量写入 + hash 更新作为**一个事务**提交；任一失败回滚该 doc，不影响他 doc。`--resume` 只重试未成功提交的 doc 及其失败块。
+- 对齐 llm_wiki `analyzeLongSourceInChunks` 的"分块 + 检查点"思路（Python 重实现）。
 
 ### 7.2 索引的每一步：从清洗产物到 index.json + 检索索引
 
@@ -461,7 +522,7 @@ flowchart TD
     SEC --> A{A 元数据线}
     SEC --> B{B 检索索引线}
 
-    A --> A1["① 脚本生成 doc_id<br/>{category}__{文件名}__{序号}"]
+    A --> A1["① 脚本生成 doc_id<br/>slug(raw相对路径)__sha256前8位<br/>(见 §7.1.1, 稳定不依赖 LLM)"]
     A1 --> A2["② LLM 第1步分析<br/>输入: md 全文 + sections 标题<br/>输出: category/关键实体/related_docs"]
     A2 --> A3["③ LLM 第2步生成<br/>输入: 第1步结果 + sections<br/>输出: title/summary 3-5句/keywords"]
     A3 --> A4["④ 脚本回填行号<br/>sections.line_start/end<br/>(确定性,不靠 LLM)"]
@@ -469,8 +530,8 @@ flowchart TD
     A5 --> A6["⑥ 追加 ingest_log.jsonl"]
 
     B --> B1["⑦ BM25 倒排<br/>jieba 分词每个 section<br/>构建/追加倒排表"]
-    B1 --> B2["⑧ 向量索引(可插拔)<br/>bge-m3 编码每个 section<br/>追加 vectors.npy + vector_meta.json"]
-    B2 --> B3["⑨ section_id ↔ 向量行号映射"]
+    B1 --> B2["⑧ 向量索引(可插拔)<br/>bge-m3 编码每个 section<br/>按 doc_id__section_id 写 vectors/"]
+    B2 --> B3["⑨ 稳定键映射 vectors/vector_index.json<br/>(doc_id__section_id ↔ 行号, 见 §9.2.2)"]
 
     style A2 fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
     style A3 fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
@@ -483,7 +544,7 @@ flowchart TD
 
 | 步 | 执行者 | 输入 | 产出 | 关键点 |
 | --- | --- | --- | --- | --- |
-| ① doc_id | 脚本 | raw 文件路径 | `{category}__{basename}__{seq}` | 稳定 ID，增量更新依据；seq 防同名 |
+| ① doc_id | 脚本 | raw 文件路径 + 文件字节 | `slug(raw相对路径)__sha256前8位` | 稳定 ID，不依赖 LLM 分类；增量更新依据；见 §7.1.1 |
 | ② LLM 第1步 | LLM | md 全文 + sections 标题列表 | `category` / 关键实体 / `related_docs` | related_docs 靠 LLM 跨文档语义关联，给出候选 doc_id |
 | ③ LLM 第2步 | LLM | 第1步结果 + sections | `title` / `summary`(3-5句) / `keywords` | 摘要服务于 index 导航，关键词辅助检索 |
 | ④ 行号回填 | 脚本 | md 文件 | `sections[].line_start/end` | **LLM 不碰行号**（会数错），脚本解析标题行号，确定性 |
@@ -495,8 +556,8 @@ flowchart TD
 | 步 | 执行者 | 输入 | 产出 | 关键点 |
 | --- | --- | --- | --- | --- |
 | ⑦ BM25 倒排 | 脚本 | 各 section 的 body 文本 | 倒排表（term → section 列表 + 词频） | jieba 中文分词；每 section 一个文档单元；IDF 全库统计 |
-| ⑧ 向量索引 | 脚本(可插拔) | 各 section 的 body 文本 | vectors.npy + vector_meta.json | bge-m3 编码；CPU；环境未装则跳过，不影响 BM25 |
-| ⑨ 映射 | 脚本 | section_id + 向量行号 | vector_meta.json | section_id ↔ 向量行号，便于 read_section 反查 |
+| ⑧ 向量索引 | 脚本(可插拔) | 各 section 的 body 文本 | vectors/vectors.npy + vectors/vector_index.json | bge-m3 编码；CPU；环境未装则跳过，不影响 BM25；按稳定键 `doc_id__section_id` 存 |
+| ⑨ 映射 | 脚本 | doc_id__section_id + 向量行号 | vectors/vector_index.json | 稳定键↔行号，便于 read_section 反查；删除按键删不重排（§9.2.2） |
 
 > **三单元一致性**：section 既是 BM25 的文档单元（步⑦），又是向量的编码单元（步⑧），又是 read_section 的加载单元。三者共享同一 section_id，无需额外对齐。
 
@@ -559,13 +620,13 @@ flowchart TD
     Q["/search?q=order_id&top_k=10"] --> PARSE[解析 q, top_k]
     PARSE --> FAN{注册了几路 Retriever?}
 
-    FAN -->|BM25 路| BM1[jieba 分词 query]
+    FAN -->|BM25 路| BM1[jieba 分词 query<br/>+ CJK bigram 兜底(F7)]
     BM1 --> BM2[查 BM25 倒排表]
     BM2 --> BM3[各 section 打分<br/>BM25 = IDF·TF 归一化]
     BM3 --> BM4[取 top_n=50 section<br/>附 source='bm25']
 
     FAN -->|向量路(可插拔)| V1[bge-m3 编码 query]
-    V1 --> V2[余弦相似 vs vectors.npy]
+    V1 --> V2[余弦相似 vs vectors/vectors.npy<br/>经 vector_index.json 稳定键反查]
     V2 --> V3[取 top_n=50 section<br/>附 source='vector']
 
     BM4 --> RRF[RRFFuser.fuse]
@@ -586,7 +647,8 @@ flowchart TD
 1. **解析**：从 query string 取 `q` 和 `top_k`（默认 10）。
 2. **分发给各 Retriever**：注册了哪几路就并发跑哪几路。P0 只有 BM25 路；向量就绪后自动多一路。
 3. **BM25 路**：jieba 分词 query → 查倒排表 → 各 section 打 BM25 分（IDF·TF 归一化）→ 取 top_n=50。
-4. **向量路**：bge-m3 编码 query → 余弦相似对比 vectors.npy → 取 top_n=50。
+   - **CJK bigram 兜底**（F7，借鉴 llm_wiki）：jieba 对未登录词（如内部字段名 `order_status`、流程编号 `PRC-2024-003`）可能切不出来。对 query 与 section 文本中的连续 CJK 串，额外生成 **2-gram（bigram）**并入倒排表/查询词项——这样"订单状态"即使 jieba 没切对，bigram "订单/单状/状态" 仍能命中。最终词项 = jieba 切词 ∪ CJK bigram，BM25 在并集上打分。
+4. **向量路**：bge-m3 编码 query → 余弦相似对比 `vectors/vectors.npy`（经 `vector_index.json` 稳定键反查 doc_id__section_id）→ 取 top_n=50。
 5. **RRF 融合**：对每个候选，`score = Σ 1/(k + rank_i)`（k=60）。各路 rank 从 1 计。
 6. **section 级去重**：同一 `(doc_id, section_id)` 在多路都命中时，只保留最高分项（RRF 已自然合并，去重是兜底）。同文档不同 section 可并存。
 7. **截断 top_k**：取分数最高的 10 条。
@@ -657,12 +719,12 @@ flowchart TD
     MOD --> CLEAN
     CLEAN --> WRITE_MD[写 md/{cat}/{doc_id}.md]
     WRITE_MD --> INDEX[索引: §5.2 全流程<br/>doc_id→LLM两步→行号回填→index]
-    INDEX --> VEC[向量: bge-m3 编码 sections<br/>追加 vectors.npy + vector_meta]
+    INDEX --> VEC[向量: bge-m3 编码 sections<br/>按 doc_id__section_id 稳定键写入 vectors/<br/>见 §9.2.2]
     VEC --> UPD_HASH[更新 hash.json 该条]
     UPD_HASH --> LOG_ADD[ingest_log.jsonl 追加 ingest 行]
 
     DEL --> DEL_INDEX[删 index.json 该 doc 条目]
-    DEL_INDEX --> DEL_VEC[删该 doc 的向量行<br/>重排 vector_meta]
+    DEL_INDEX --> DEL_VEC[按 doc_id__section_id 稳定键<br/>删该 doc 全部向量<br/>不重排活跃行号, 见 §9.2.2]
     DEL_VEC --> DEL_MD[删 md/{cat}/{doc_id}.md]
     DEL_MD --> DEL_HASH[hash.json 删该条]
     DEL_HASH --> LOG_DEL[ingest_log.jsonl 追加 delete 行]
@@ -680,8 +742,29 @@ flowchart TD
 
 - **变更检测是入口**：无论 watch 自动还是 ingest 手动，第一步都是扫 raw/ 算哈希、对比 hash.json。这是"只处理变更那一份"的依据。
 - **新增/修改走同一路**：都是清洗→索引→向量→更新 hash→记日志。区别只在 index 更新时是 append 还是覆盖（按 doc_id 判定）。
-- **删除是反向操作**：index 条目、向量行、md 文件、hash 记录、log 逐项清理。向量行删除后需重排 vector_meta 的行号映射。
+- **删除是反向操作**：index 条目、向量（按稳定键删）、md 文件、hash 记录、log 逐项清理。**向量删除按 `doc_id__section_id` 稳定键删，不重排活跃行号**（见 §9.2.2）。
+- **原子提交 + 可续跑**：单份文档的"hash 更新 + index 更新 + 向量写入 + log 追加"作为一个事务；任一步失败回滚该文档，不影响他文档；`kb ingest --resume` 跳过已成功落 hash 的，只重跑失败那批（见 F5）。
 - **不全量重建**：每次只动变更涉及的文档，1000 份库更新一份只花一份的时间。
+
+#### 9.2.1 related_docs 双向回填（评审 B3 修复）
+
+增量摄入文档 A 时，若 LLM 第1步给出 `related_docs: [B, C]`，则除了写 A→B、A→C，还需**回指**：在 B、C 的 doc 条目里补上 `related_docs` 包含 A（若尚未存在）。这样图是无向的，从任一文档出发都能双向跳转，不会出现"A 指向 B 但 B 不知道 A"的悬挂引用。
+
+- 回填只发生在 A **新增/修改**时，是对已有条目的局部追加，幂等（重复跑不重复加）。
+- 这是 llm_wiki "知识图无向化"思路的简化版（P0 不做 4 信号加权，只做 LLM 显式关联 + 双向回填；加权和 Louvain 社区见 P1/P2，见 [borrow_and_adapt_plan §2.3](../../llm_wiki_borrow_and_adapt_plan.md)）。
+
+#### 9.2.2 向量稳定键删除（评审 A5/B1 修复，借鉴 llm_wiki page-keyed 模式）
+
+**原问题**：旧设计"向量按行号连续存储，删除某 doc 时重排 `vector_meta` 行号映射"——并发检索时重排会错位、行号映射易腐烂。
+
+**修复**：向量以 **`doc_id__section_id` 字符串**为主键（对齐 llm_wiki 的 `page_id`/`chunk_id` 主键模式）：
+
+- P0 用 `dict[str, vector]` + 落盘 `vectors/vectors.npy`（值数组）+ `vectors/vector_index.json`（`稳定键 → 行号` 映射）。
+- **删除**：从 dict 删该 doc 所有键、从值数组置空/标记回收、更新 `vector_index.json`——**活跃行号不重排**，只回收空槽（或 P0 直接重建该文件，量小无所谓）。
+- **查询**：检索得到 `(行号, score)` 后，反查 `vector_index.json` 得 `doc_id__section_id`，再拆出 doc_id/section_id——行号只是内部偏移，从不外泄给 L2。
+- **P1 升级 LanceDB** 时，直接以 `doc_id__section_id` 作主键列，`delete where doc_id=?` 即删，无需重排——与 llm_wiki `removePageEmbedding(page_id)` 同构。
+
+详见 §5 数据模型 `vectors/` 目录、§5.1 raw不可变原则。
 
 ### 9.3 变更检测（hash.json）
 
@@ -689,7 +772,7 @@ flowchart TD
 
 ```json
 {
-  "data_table__order_detail__001": {
+  "data_table_order_detail__a3f9c1e2": {
     "hash": "sha256:a3f9...",
     "path": "raw/data_table/order_detail.xlsx",
     "ingested_at": "2026-07-30T10:00:00"
@@ -707,18 +790,18 @@ flowchart TD
 | 缺交叉引用 | 两文档关键词高度重叠但互无 related_docs | warn |
 | 格式校验 | ingest_log.jsonl 每行可 grep 解析;index.json schema 合法 | error |
 | 数据缺口 | 某分类下文档数异常少(如 data_table 仅 3 份) | info |
-| 向量一致性 | vector_meta.json 的 section_id 与 index.json sections 对齐 | error |
+| 向量一致性 | vectors/vector_index.json 的稳定键与 index.json sections 对齐(每个 section_id 都有对应键) | error |
 
 输出 `lint_report.json`,可 CI 跑。**周期 LLM Lint（矛盾/过时/缺概念页）放 P1**——P0 用确定性脚本即可抓住结构性问题。
 
 ### 9.5 可重建性（Karpathy "raw 是唯一真相源"兜底）
 
-`md/`、`index.json`、`vectors.npy`、ingest_log.jsonl 全是 raw 的生成物。`kb rebuild` 可从 raw 完整重建所有生成物：
+`md/`、`index.json`、`vectors/`、ingest_log.jsonl 全是 raw 的生成物。`kb rebuild` 可从 raw 完整重建所有生成物：
 
 ```mermaid
 flowchart LR
     RAW[(raw/ 唯一真相源)] --> RB[kb rebuild]
-    RB --> CLR[清空生成物:<br/>md/ index.json vectors.npy<br/>vector_meta.json hash.json]
+    RB --> CLR[清空生成物:<br/>md/ index.json vectors/<br/>hash.json ingest_log.jsonl]
     CLR --> REING[全量重摄入:<br/>遍历 raw/ 逐份走 §7.2 增量流程]
     REING --> GEN[(重新生成全部产物)]
     style CLR fill:#fce4ec,stroke:#c2185b,stroke-width:2px
@@ -733,23 +816,40 @@ flowchart LR
 | --- | --- | --- |
 | 文件监听(自动) | `kb watch` | 常驻监听 raw/ 变更,自动增量摄入 |
 | 手动摄入 | `kb ingest <path>` | 指定文档/目录摄入 |
+| 断点续跑 | `kb ingest --resume` | 跳过已成功落 hash 的,只重跑失败 doc/块(见 §7.1.3、F5) |
 | 手动 Lint | `kb lint` | 触发确定性检查 |
 | 全量重建 | `kb rebuild` | 生成物损坏/schema 升级时从 raw 重建 |
 
 `kb watch` 用 watchdog 库监听 raw/ 文件系统事件（create/modify/move），事件触发后走 §7.2 流程。P0 也可只用手动 `kb ingest`，watch 是增强件。
+
+#### 9.6.1 watch 持久化变更队列（F8，借鉴 llm_wiki `FileChangeQueue`）
+
+`kb watch` 不能"事件丢了就丢知识"。借鉴 llm_wiki 的状态机队列，P0 用一个**落盘的变更队列** `kb_state/watch_queue.jsonl`（append-only）+ 状态机：
+
+| 状态 | 含义 | 流转 |
+| --- | --- | --- |
+| `pending` | 监听到事件,待处理 | → `processing` |
+| `processing` | 正在摄入该 doc | 成功 → `done`;失败 → `retry` |
+| `retry` | 失败待重试(已重试次数 < MAX=3) | 退避后 → `processing` |
+| `failed` | 重试 MAX 次仍失败 | 记 error 日志,人工 `kb ingest <path>` 排查 |
+
+- **自写抑制**（借鉴 llm_wiki `APP_WRITE_IGNORE_MS`）：摄入脚本写 `md/`/`vectors/`/`index.json` 会反向触发 watch 事件。watch 只监听 `raw/`，生成物目录不在监听范围——从根上避免自写回环。若监听范围扩大，则在写入后 `APP_WRITE_IGNORE_MS`（默认 4000ms）窗口内忽略同路径事件。
+- **崩溃恢复**：watch 进程重启时扫 `watch_queue.jsonl`，把 `pending`/`processing`/`retry` 全部重投为 `pending` 重新处理——不会因崩溃丢变更。
+- **去抖动**：同一路径在短窗口（默认 2s）内多次 modify 合并为一条 `pending`，避免保存中途多次触发。
+- 对齐 llm_wiki `FileChangeQueue` + `MAX_RETRY_COUNT` + 自写抑制思路（Python 重实现）。
 
 ### 9.7 ingest_log.jsonl 格式
 
 append-only,每行一条,可 grep 解析。是变更时间线的唯一来源。
 
 ```json
-{"ts": "2026-07-30T10:00:00", "type": "ingest", "doc_id": "data_table__order_detail__001", "title": "订单明细表字段说明", "action": "add"}
-{"ts": "2026-07-30T10:05:00", "type": "ingest", "doc_id": "data_table__order_detail__001", "title": "订单明细表字段说明", "action": "modify"}
-{"ts": "2026-07-30T11:00:00", "type": "delete", "doc_id": "process__old_flow__003"}
+{"ts": "2026-07-30T10:00:00", "type": "ingest", "doc_id": "data_table_order_detail__a3f9c1e2", "title": "订单明细表字段说明", "action": "add"}
+{"ts": "2026-07-30T10:05:00", "type": "ingest", "doc_id": "data_table_order_detail__a3f9c1e2", "title": "订单明细表字段说明", "action": "modify"}
+{"ts": "2026-07-30T11:00:00", "type": "delete", "doc_id": "process_old_flow__c2b1a07d"}
 {"ts": "2026-07-30T11:30:00", "type": "lint", "issues": 3}
 ```
 
-grep 示例：`grep '"type":"ingest"' ingest_log.jsonl | tail -5` 看最近 5 次摄入；`grep '"doc_id":"data_table__order_detail__001"'` 看某文档的全部变更史。
+grep 示例：`grep '"type":"ingest"' ingest_log.jsonl | tail -5` 看最近 5 次摄入；`grep '"doc_id":"data_table_order_detail__a3f9c1e2"'` 看某文档的全部变更史。
 
 ---
 
@@ -797,7 +897,7 @@ kb rebuild                                       # 从 raw 全量重建
 `kb search` 每条结果：
 
 ```
-[#1] score=0.0312  data_table__order_detail__001 / s0
+[#1] score=0.0312  data_table_order_detail__a3f9c1e2 / s0
      Sheet1: 订单主表
      | order_id | string | 订单唯一标识 |
      [md: md/data_table/order_detail.md:1-48]
@@ -907,10 +1007,10 @@ kb rebuild                                       # 从 raw 全量重建
 
 | # | 风险 | 影响 | 概率 | 缓解措施 |
 | --- | --- | --- | --- | --- |
-| R1 | **PDF 表格清洗不完整**（复杂表格丢字段） | 数据表/接口文档召回不准 | 中 | PyMuPDF4LLM + pdfplumber 双库互补；§12 评估兜底；真实数据复验 |
-| R2 | **LLM 归纳质量不稳**（摘要/分类偶发偏差） | index 导航不准 | 中 | 两步分离可独立重跑；Lint 检查；人工抽检 |
-| R3 | **CPU 建向量索引慢**（1000 份首次建库耗时长） | 首次部署等待久 | 中 | 一次性成本，后续增量；向量可插拔，P0 可先不装 |
-| R4 | **section 切分过粗/过细** | 召回精度受影响 | 中 | 过长 section 二次切分兜底；§12 用例验证调参 |
+| R1 | **PDF 表格清洗不完整**（复杂表格丢字段） | 数据表/接口文档召回不准 | 中 | PyMuPDF4LLM 权威 + pdfplumber 兜底（F3）；§12 评估兜底；真实数据复验 |
+| R2 | **LLM 归纳质量不稳**（摘要/分类偶发偏差） | index 导航不准 | 中 | 两步分离可独立重跑；Lint 检查；人工抽检；doc_id 不依赖分类故重分类无破坏 |
+| R3 | **CPU 建向量索引慢**（1000 份首次建库耗时长） | 首次部署等待久 | 中 | 一次性成本，后续增量；向量可插拔，P0 可先不装；原子提交+--resume 断点续跑（F5） |
+| R4 | **section 切分过粗/过细** | 召回精度受影响 | 中 | 过长 section 二次切分兜底；宽表列分组（F4）；§12 用例验证调参 |
 | R5 | **LLM 端点不可用**（内部服务波动） | 摄入流程卡住 | 低 | 摄入可重试/补跑；查询不依赖 LLM（纯检索） |
 | R6 | **真实数据与合成样本差异大** | 验收通过但真实效果打折 | 中 | 合成样本只验机制，真实数据复验为正式验收 |
 | R7 | **文档量大增长超 1000 份** | 内存索引吃紧 | 低 | 升级路径清晰：内存→LanceDB/Qdrant，契约不变 |
@@ -953,8 +1053,20 @@ kb rebuild                                       # 从 raw 全量重建
 
 **风险层面**
 
-- [ ] 认可 R1（PDF 表格清洗）有双库互补 + 评估兜底
+- [ ] 认可 R1（PDF 表格清洗）有 PyMuPDF4LLM 权威 + pdfplumber 兜底（F3）
 - [ ] 认可 R3（CPU 建索引慢）为一次性成本、有升级路径
+
+**llm_wiki 借鉴与评审修复层面**
+
+- [ ] 认可 doc_id 由稳定路径+sha256 派生、不依赖 LLM 分类（F1，§7.1.1）
+- [ ] 认可向量按 `doc_id__section_id` 稳定键删除、不重排行号（F2，§9.2.2）
+- [ ] 认可 Excel 宽表列分组 + 表 section 豁免 200 行阈值（F4，§6.2.3）
+- [ ] 认可原子提交 + `kb ingest --resume` 断点续跑（F5/F10，§7.1.3）
+- [ ] 认可 related_docs 双向回填（F6，§9.2.1）
+- [ ] 认可 BM25 加 CJK bigram 兜底分词（F7，§8.2）
+- [ ] 认可 watch 持久化变更队列 + 崩溃恢复 + 自写抑制（F8，§9.6.1）
+- [ ] 认可 `is_safe_path` 路径注入守卫（F9，§7.1.2）
+- [ ] 认可 P0 不做多模态增强、留待 P2+ 评估（F11）
 
 ---
 
