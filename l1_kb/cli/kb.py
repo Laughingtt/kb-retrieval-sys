@@ -176,7 +176,12 @@ def ingest(path: Path, md_root: Path, raw_root: Path, wiki_root: Path, cache_pat
         identity = str(rel).replace("\\", "/")
         index_md = read_index_md(wiki_root)
         today = config.today()
-        res = ingest_source(f, identity, wiki_root=wiki_root, cache_path=cache_path, client=client, today=today, index_md=index_md)
+        try:
+            res = ingest_source(f, identity, wiki_root=wiki_root, cache_path=cache_path, client=client, today=today, index_md=index_md)
+        except Exception as e:
+            click.secho(f"[ERR] {f.name}: {e}", fg="red", err=True)
+            failed += 1
+            continue
         if res.skipped_cached:
             click.secho(f"[SKIP-CACHED] {f.name}", fg="cyan")
             skipped += 1

@@ -48,6 +48,49 @@ def test_kb_ingest_fallback_then_search(tmp_path, monkeypatch):
     assert "order_id" in res3.output
 
 
+def test_ingest_cmd_continues_on_error(tmp_path, monkeypatch):
+    """单文件 ingest_source 抛异常时，CLI 应记 failed、continue、不崩批次。"""
+    wiki = tmp_path / "wiki"
+    md_root = tmp_path / "md"
+
+    # 两份 md 文件
+    md_ok = md_root / "data_table" / "order_detail.md"
+    md_ok.parent.mkdir(parents=True, exist_ok=True)
+    md_ok.write_text("## 订单\n\n| order_id | customer |\n|---|---|\n| O1 | 张三 |\n", encoding="utf-8")
+    md_bad = md_root / "data_table" / "broken.md"
+    md_bad.write_text("## 坏\n\n| x |\n|---|\n| 1 |\n", encoding="utf-8")
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    # 替换 ingest_source：对 broken.md 抛异常，其余走原逻辑（fallback）
+    from l1_kb.cli import kb as kb_mod
+    real_ingest_source = kb_mod.ingest_source
+
+    def fake_ingest_source(f, identity, **kwargs):
+        if f.name == "broken.md":
+            raise RuntimeError("boom")
+        return real_ingest_source(f, identity, **kwargs)
+
+    monkeypatch.setattr(kb_mod, "ingest_source", fake_ingest_source)
+
+    runner = CliRunner()
+    res = runner.invoke(cli, [
+        "ingest", str(md_root),
+        "--md-root", str(md_root),
+        "--raw-root", str(tmp_path / "raw"),
+        "--wiki-root", str(wiki),
+        "--cache-path", str(tmp_path / "cache.json"),
+    ])
+    # 批次未崩：退出码 0（ingest 不加 sys.exit），且输出含 ERR + 失败 1
+    assert res.exit_code == 0, res.output
+    assert "[ERR]" in res.output
+    assert "broken.md" in res.output
+    assert "失败 1" in res.output
+    # 另一份仍被正常处理
+    assert "失败 0" not in res.output
+
+
 def test_kb_search_empty_wiki(tmp_path):
     wiki = tmp_path / "wiki"
     wiki.mkdir()

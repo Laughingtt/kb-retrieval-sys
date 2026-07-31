@@ -68,6 +68,18 @@ def test_stamp_dates_existing():
     assert out.updated == "2026-07-31"
 
 
+def test_from_dict_null_values_coerce_to_empty():
+    """YAML 空值解析为 None，from_dict 应统一归一为 '' 而非字面量 'None'。"""
+    # 模拟 yaml.safe_load 把空 type:/title:/created:/updated: 行解析为 None
+    meta = fm.Frontmatter.from_dict({"type": None, "title": None, "created": None, "updated": None})
+    assert meta.type == ""
+    assert meta.title == ""
+    assert meta.created == ""
+    assert meta.updated == ""
+    # 显式断言不为 "None"
+    assert meta.type != "None"
+
+
 def test_canonicalize_sources_injects_identity():
     m = fm.Frontmatter(type="source", title="T", created="2026-07-31", updated="2026-07-31",
                        tags=[], related=[], sources=["other.xlsx"])

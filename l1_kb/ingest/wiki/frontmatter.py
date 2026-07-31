@@ -42,11 +42,14 @@ class Frontmatter:
                 return [str(x) for x in v]
             return [str(v)]
 
+        def _s(v):
+            return "" if v is None else str(v)
+
         return cls(
-            type=str(d.get("type", "")),
-            title=str(d.get("title", "")),
-            created=str(d.get("created", "")),
-            updated=str(d.get("updated", "")),
+            type=_s(d.get("type", "")),
+            title=_s(d.get("title", "")),
+            created=_s(d.get("created", "")),
+            updated=_s(d.get("updated", "")),
             tags=_as_list(d.get("tags")),
             related=_as_list(d.get("related")),
             sources=_as_list(d.get("sources")),
