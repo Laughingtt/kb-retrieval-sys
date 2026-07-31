@@ -19,6 +19,7 @@ __all__ = [
     "type_for_dir",
     "is_valid_type",
     "validate_routing",
+    "normalize_wiki_path",
     "sanitize_slug",
     "slug_from_source_identity",
 ]
@@ -34,6 +35,9 @@ TYPE_TO_DIR = {
     "process": "process",
 }
 DIR_TO_TYPE = {v: k for k, v in TYPE_TO_DIR.items()}
+
+# process 目录的已知 LLM 漂移别名（step1 schema "processes" 键名诱导）—— 容错到单数 process
+_DIR_ALIASES = {"processes": "process"}
 
 # frontmatter 字段分类（吸收 llm_wiki LOCKED_FIELDS / UNION_FIELDS）
 LOCKED_FIELDS = ("type", "title", "created")
@@ -58,13 +62,27 @@ def validate_routing(path: str, page_type: str) -> bool:
     """path 与 page_type 所在目录是否一致（吸收 llm_wiki validateWikiPageRouting）。
 
     path 形如 wiki/sources/{slug}.md；要求 wiki/ 前缀且第二段 == 该 type 对应目录。
+    容忍已知 LLM 漂移别名（processes→process）：归一化后再比较。
     """
     if not page_type in PAGE_TYPES:
         return False
     parts = path.replace("\\", "/").split("/")
     if len(parts) < 2 or parts[0] != "wiki":
         return False
-    return parts[1] == TYPE_TO_DIR[page_type]
+    actual = _DIR_ALIASES.get(parts[1], parts[1])
+    return actual == TYPE_TO_DIR[page_type]
+
+
+def normalize_wiki_path(path: str) -> str:
+    """归一化 wiki 路径中的已知别名目录段（processes→process），返回规范路径。
+
+    仅改写 wiki/ 前缀下的第二段且该段在 _DIR_ALIASES 中时；其余原样返回。
+    """
+    parts = path.replace("\\", "/").split("/")
+    if len(parts) >= 2 and parts[0] == "wiki" and parts[1] in _DIR_ALIASES:
+        parts[1] = _DIR_ALIASES[parts[1]]
+        return "/".join(parts)
+    return path
 
 
 def sanitize_slug(raw: str) -> str:

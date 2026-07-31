@@ -19,7 +19,7 @@ from .frontmatter import (
     stamp_dates,
     union_arrays,
 )
-from .page_types import validate_routing
+from .page_types import normalize_wiki_path, type_for_dir, validate_routing
 
 __all__ = ["merge_page"]
 
@@ -39,6 +39,14 @@ def merge_page(
 ) -> str | None:
     """合并/写入一页。返回整页文本；routing 不一致返回 None。"""
     new_fm, new_body = parse(new_content)
+    # 兜底：LLM 偶尔漏填 type=；从路径目录反推（type_for_dir 容忍别名目录需先归一化）。
+    # 注意 yaml 解析空值为 None，Frontmatter.from_dict 会 str(None)="None"，一并视为缺失。
+    if not new_fm.type or new_fm.type == "None":
+        parts = normalize_wiki_path(new_path).replace("\\", "/").split("/")
+        if len(parts) >= 2 and parts[0] == "wiki":
+            inferred = type_for_dir(parts[1])
+            if inferred:
+                new_fm.type = inferred
     if not validate_routing(new_path, new_fm.type):
         _warn(f"routing 不一致，丢弃: {new_path} type={new_fm.type}")
         return None

@@ -34,12 +34,13 @@ _STEP1_SYSTEM = """你是企业知识库的编目员（cataloger）。阅读一�
 - exists：对照下方 Wiki Index 判断该实体/概念/流程是否已存在（已存在则 true，避免重复生成）。
 - summary 点到为止；keywords 必须包含字段名、流程编号等可检索关键串。
 - 若该原件不含某类，对应数组留空。
+- 流程类页（processes 数组）落盘目录为单数 wiki/process/（注意：不是 processes/）。
 """
 
 _STEP2_SYSTEM = """你是企业知识库的 wiki 页生成器。根据 step1 分析 + 源文本，生成 wiki 页。
 
 输出严格使用 FILE block 格式，每个页一个 block：
----FILE: wiki/{sources|entities|concepts|process}/{slug}.md---
+---FILE: wiki/{sources|entities|concepts|process}/{slug}.md---（process 目录是单数 process，不是 processes）
 <frontmatter + body>
 ---END FILE---
 

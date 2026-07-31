@@ -17,3 +17,17 @@ def test_step2_messages_contain_file_block_format():
     assert "---FILE:" in sys_
     assert "context only" in sys_.lower() or "do not repeat" in sys_.lower()
     assert "data_table/order_detail.xlsx" in user
+
+
+def test_step_prompts_single_process_dir_anchored():
+    # step1 锚点提示在 _STEP1_SYSTEM（system prompt）
+    s1_sys, _ = p.build_step1_messages("process/policy.md", "## 流程", "# Index")
+    assert "wiki/process/" in s1_sys
+    assert "单数" in s1_sys or "不是 processes" in s1_sys
+    # step2 FILE block 行也强化单数
+    s2_sys, _ = p.build_step2_messages(
+        "process/policy.md", "## 流程",
+        {"entities": [], "concepts": [], "processes": [], "summary": "", "keywords": []},
+        "# Index",
+    )
+    assert "单数" in s2_sys or "不是 processes" in s2_sys

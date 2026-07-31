@@ -99,3 +99,20 @@ def test_ingest_fallback_when_llm_error(tmp_path):
     )
     assert res.fallback is True
     assert (wiki / "sources" / "data_table_order_detail.md").exists()
+
+
+def test_merge_page_backfills_empty_type_from_dir(tmp_path):
+    from l1_kb.ingest.wiki.merge import merge_page
+    from l1_kb.ingest.wiki.frontmatter import Frontmatter, dump
+
+    wiki = tmp_path / "wiki"
+    (wiki / "sources").mkdir(parents=True)
+    fm = Frontmatter(type="", title="策略", created="2026-08-01", updated="",
+                     tags=[], related=[], sources=[])
+    body = "# 策略\n正文"
+    new_content = dump(fm) + "\n\n" + body + "\n"
+    new_path = "wiki/sources/process_policy.md"
+    out = merge_page(None, new_path, new_content, "process/policy.md", "2026-08-01", exists=False)
+    # 空 type 被路径反推为 source → routing 通过 → 返回整页文本（非 None）
+    assert out is not None
+    assert "type: source" in out or "type:source" in out.replace(" ", "")

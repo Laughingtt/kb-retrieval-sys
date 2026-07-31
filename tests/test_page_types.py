@@ -50,3 +50,17 @@ def test_slug_from_source_identity():
 def test_locked_and_union_fields():
     assert pt.LOCKED_FIELDS == ("type", "title", "created")
     assert pt.UNION_FIELDS == ("sources", "tags", "related")
+
+
+def test_validate_routing_processes_alias():
+    # LLM 漂移输出复数 processes，应被容忍为合法 process routing
+    assert pt.validate_routing("wiki/processes/refund.md", "process") is True
+    # 别名不污染其他类型
+    assert pt.validate_routing("wiki/processes/refund.md", "entity") is False
+
+
+def test_normalize_wiki_path():
+    assert pt.normalize_wiki_path("wiki/processes/refund.md") == "wiki/process/refund.md"
+    # 非别名原样返回
+    assert pt.normalize_wiki_path("wiki/sources/x.md") == "wiki/sources/x.md"
+    assert pt.normalize_wiki_path("wiki/entities/y.md") == "wiki/entities/y.md"

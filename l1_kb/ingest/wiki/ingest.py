@@ -19,7 +19,7 @@ from .file_blocks import parse_file_blocks
 from .index_log import append_log, rebuild_index
 from .ingest_cache import check_cache, content_hash, save_cache
 from .merge import merge_page
-from .page_types import slug_from_source_identity
+from .page_types import normalize_wiki_path, slug_from_source_identity
 
 __all__ = ["IngestResult", "ingest_source", "build_fallback_pages", "read_index_md", "make_client_from_config"]
 
@@ -126,6 +126,8 @@ def ingest_source(
         # path 形如 wiki/sources/{slug}.md；写入时剥去 wiki/ 前缀，
         # 使落盘位置为 wiki_root/sources/{slug}.md（与 index_log/rebuild_index
         # 的 rglob 期望一致）。routing 校验仍用原始 path（validate_routing 要求 wiki/ 前缀）。
+        # 归一化已知 LLM 漂移别名目录（processes→process），让复数目录真正落盘到单数。
+        path = normalize_wiki_path(path)
         rel = path
         if rel.startswith("wiki/"):
             rel = rel[len("wiki/"):]

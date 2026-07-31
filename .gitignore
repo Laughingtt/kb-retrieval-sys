@@ -13,5 +13,7 @@ l1_kb/knowledge_base/ingest_log.jsonl
 l1_kb/knowledge_base/vectors/
 l1_kb/knowledge_base/lint_report.json
 l1_kb/knowledge_base/kb_state/
+l1_kb/knowledge_base/wiki/
+l1_kb/knowledge_base/.cache/
 
 # 合成样本的 md 产物不入库（raw 样本本身入库）
