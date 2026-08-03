@@ -25,6 +25,12 @@ _PATH_DIRS = {
     "WIKI_ROOT": "wiki",
 }
 
+_EXTRA_PATHS = {
+    # 默认 .cache/hash.json 与 knowledge_base/ingest_log.jsonl
+    "HASH_PATH": ("l1_kb", "knowledge_base", ".cache", "hash.json"),
+    "INGEST_LOG_PATH": ("l1_kb", "knowledge_base", "ingest_log.jsonl"),
+}
+
 
 def _resolve_path(name: str) -> Path:
     """基于 _PROJECT_ROOT 解析路径常量（可被 env 覆盖）。
@@ -38,11 +44,14 @@ def _resolve_path(name: str) -> Path:
     if name == "INGEST_CACHE_PATH":
         default = _PROJECT_ROOT / "l1_kb" / "knowledge_base" / ".cache" / "ingest-cache.json"
         return Path(os.environ.get("INGEST_CACHE_PATH", default))
+    if name in _EXTRA_PATHS:
+        default = _PROJECT_ROOT.joinpath(*_EXTRA_PATHS[name])
+        return Path(os.environ.get(name, default))
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __getattr__(name: str):  # PEP 562
-    if name in _PATH_DIRS or name == "INGEST_CACHE_PATH":
+    if name in _PATH_DIRS or name == "INGEST_CACHE_PATH" or name in _EXTRA_PATHS:
         return _resolve_path(name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
