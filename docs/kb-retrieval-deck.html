@@ -433,7 +433,7 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <span class="badge">BM25 精确召回</span>
       <span class="badge">零向量库</span>
     </div>
-    <div class="deck-footer"><span class="dim2">数据团队 · 知识库智能体项目</span><span class="slide-number" data-current="1" data-total="20"></span></div>
+    <div class="deck-footer"><span class="dim2">数据团队 · 知识库智能体项目</span><span class="slide-number" data-current="1" data-total="21"></span></div>
     <div class="notes">开场。今天向大家汇报企业内部知识检索服务的检索方案选型。背景是我们有约 1000 份 PDF 文档，包括数据产品接口文档、公司流程制度、数据表字段说明，目标是让业务人员用对话方式查询。这份汇报会过一遍所有候选检索方案，给出推荐架构和落地路线。先说明几个核心约束：Agent 驱动而非工作流编排、全自托管、支持多跳和自评重试。</div>
   </section>
 
@@ -717,18 +717,46 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="grid g2 mt-l" style="align-items:start">
       <div class="card" style="border-top:3px solid var(--good)">
         <h4>✓ 为什么是它</h4>
-        <ul class="dim" style="padding-left:18px;line-height:1.75;margin:6px 0"><li>不切片、保留全文上下文</li><li>可解释、可多跳回溯、零向量库基础设施</li><li>知识结构化沉淀（index.json + related_docs）</li></ul>
+        <ul class="dim" style="padding-left:18px;line-height:1.75;margin:6px 0"><li>不切片、保留全文上下文（read_section 按行号区间加载原文段）</li><li>可解释、可多跳回溯、零向量库基础设施</li><li>知识结构化沉淀：wiki/ 页面树 + frontmatter <code>related</code> 关联</li></ul>
       </div>
       <div class="card" style="border-top:3px solid var(--accent)">
         <h4>📊 2026 实测背书</h4>
         <ul class="dim" style="padding-left:18px;line-height:1.75;margin:6px 0"><li>Claude Code / Cursor / Devin 同款模式，都不塞向量库</li><li>FinanceBench 表格密集文档：agentic 关键词 <b>30.40%</b> 反超向量 RAG <b>24.24%</b></li><li>Vercel：加文件系统工具后砍掉 80% 专用工具，准确率反升</li></ul>
       </div>
     </div>
+    <p class="dim mt-s" style="font-size:12px"><b>结合现有代码：</b>L1 已落地 M1 清洗（PDF/Word/Excel→MD）+ M2 两步 LLM 摄入（step1 抽实体/概念/流程/摘要/关键词 → step2 生成 <code>wiki/{sources,entities,concepts,process}/{slug}.md</code>）+ 确定性 <code>wiki/index.md</code>/<code>wiki/log.md</code> + BM25(rank-bm25)+RRF(k=60)+snippet(行号切片 500 字) 检索，经 <code>kb search</code> CLI 验证。5 工具中 grep_docs 已由该检索栈支撑；read_section 有切片原语；list_categories/list_documents 及 REST 服务待 M3。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
-    <div class="notes">这是我们的主方案，重点讲。思路是不给 Agent 配向量库，而是给一组文件系统导航工具：list_categories 浏览目录、list_documents 列候选文档、grep_docs 做 BM25 精确召回、read_section 按需加载原文段、grade_relevance 自评相关性，不达标就改写重检。Agent 自己决定调什么、何时调、调几次。优点是不切片、保留全文上下文、可解释、可多跳回溯、零向量库基础设施，而且知识能结构化沉淀。这是 2026 年明确的主流趋势：Claude Code、Cursor、Devin、Cline 全都用这个模式，都不把语料塞进向量库。实测数据也很硬：在 FinanceBench 表格密集财务文档上，agentic 关键词检索 30.40% 反超向量 RAG 的 24.24%；Vercel 加文件系统工具后砍掉 80% 专用工具，准确率反升。一句话：这正是我们的场景——1000 份结构化内部文档、按目录分类、多跳自评。</div>
+    <div class="notes">这是我们的主方案，重点讲。思路是不给 Agent 配向量库，而是给一组文件系统导航工具：list_categories 浏览目录、list_documents 列候选文档、grep_docs 做 BM25 精确召回、read_section 按需加载原文段、grade_relevance 自评相关性，不达标就改写重检。Agent 自己决定调什么、何时调、调几次。结合现有代码说：L1 层已经落地了——M1 清洗把 PDF、Word、Excel 转成 markdown，Excel 还原成完整 markdown 表；M2 是两步 LLM 摄入，第一步抽取实体、概念、流程、摘要、关键词，第二步生成 wiki 目录树下的 sources、entities、concepts、process 四类页面，每页带 frontmatter，related 字段记录关联页面；再确定性生成 index.md 内容目录和 append-only 的 log.md 变更日志；检索用 rank-bm25 做 BM25，RRF k=60 融合，snippet 按行号切片最多 500 字，经 kb search 命令验证。五个 L2 工具里 grep_docs 已经由这套检索栈支撑，read_section 有行号切片原语，list_categories、list_documents 和 REST 服务是 M3 的事。实测背书很硬：Claude Code、Cursor、Devin 全用这个模式，FinanceBench 表格密集文档 agentic 关键词 30.40% 反超向量 RAG 的 24.24%，Vercel 加文件系统工具后砍掉 80% 专用工具准确率反升。一句话：这正是我们的场景——1000 份结构化内部文档、按目录分类、多跳自评。</div>
   </section>
 
-  <!-- 13. 章节分隔② -->
+  <!-- 13. Agentic RAG 主控（RAG + Agent） -->
+  <section class="slide" data-title="Agentic RAG">
+    <p class="kicker">控制层主选 · Agentic RAG (RAG + Agent) — 我们的控制方式</p>
+    <h2 class="h2">片段检索 + 单篇全读 + 多次查询，比工作流单次检索更准</h2>
+    <p class="lede mb-l">把 RAG 从"一次性流水线"升级为"Agent 自主迭代的检索循环"。</p>
+    <div class="grid g2 mt-l" style="align-items:start">
+      <div class="card" style="border-top:3px solid var(--good)">
+        <h4>🔍 片段检索（grep_docs）</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.7;margin:6px 0"><li>BM25 关键词召回 → 返回 <code>doc_id + section_id + snippet</code></li><li>snippet 按行号切片（≤500 字），<b>是片段，不是全文</b></li><li>低 token 成本、快速定位候选章节</li></ul>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <h4>📖 单篇内容全部检索（read_section）</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.7;margin:6px 0"><li>定位后 <code>read_section</code> 加载该章节<b>完整原文</b></li><li>表头与数据行、字段说明与示例<b>不再被切断</b></li><li>"检索也是片段，但 Agent 可按需取全"——片段定位 + 全文理解</li></ul>
+      </div>
+    </div>
+    <div class="card mt-l" style="border-top:3px solid var(--accent)">
+      <h4>⭐ 多次查询 &gt; 工作流单次检索</h4>
+      <div class="row wrap mt-s" style="gap:10px">
+        <span class="badge warn">工作流 RAG：检索一次 → 拼上下文 → 生成，召回不全就答错，无补救</span>
+        <span class="badge good">Agentic RAG：grade_relevance 自评 → 不达标则改写查询 / 换文档 / 再 grep，多跳迭代直至取全</span>
+      </div>
+      <p class="dim mt-s" style="margin-bottom:0">本质区别：单次检索的召回上限即答案上限；Agent 多跳把"召回率"从一次的概率事件变成<b class="accent">可迭代收敛的确定过程</b>——这正是我们"基于 Agent 非工作流"硬约束的技术内核。</p>
+    </div>
+    <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
+    <div class="notes">这一页讲我们的控制层主选——Agentic RAG，也就是 RAG 加 Agent。把 RAG 从一次性流水线升级成 Agent 自主迭代的检索循环。两个检索粒度：一是片段检索，grep_docs 走 BM25 召回，返回文档 id、章节 id、snippet，snippet 按行号切片最多 500 字，它是片段不是全文，低 token 成本快速定位候选。二是单篇内容全部检索，read_section 在定位后加载该章节完整原文，表头和数据行、字段说明和示例不再被切断。关键点：检索返回的也是片段，但 Agent 可以按需取全，片段定位加全文理解。最重要的一句——多次查询比工作流单次检索更准。工作流 RAG 是检索一次、拼上下文、生成，召回不全就答错，没有补救；Agentic RAG 是 grade_relevance 自评，不达标就改写查询、换文档、再 grep，多跳迭代直到取全。本质区别：单次检索的召回上限就是答案上限；Agent 多跳把召回率从一次的概率事件变成可迭代收敛的确定过程。这正是我们基于 Agent 非工作流这条硬约束的技术内核。</div>
+  </section>
+
+  <!-- 14. 章节分隔② -->
   <section class="slide center tc" data-title="Section 03">
     <div style="max-width:780px;margin:0 auto">
       <p class="kicker anim-fade-down" data-anim="fade-down">Section · 03</p>
@@ -763,8 +791,18 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       </div>
     </div>
     <p class="mt-l"><b>关键洞察：</b>index.md 在中等规模（~100 份来源）"出奇地好用"，<b class="accent">可以完全不需要 embedding RAG 基础设施</b>——印证了我们"按目录分类 + 按需加载原文"的直觉。</p>
+    <div class="grid g2 mt-m" style="align-items:start">
+      <div class="card" style="border-top:3px solid var(--accent)">
+        <h4>🏗️ 建设原理</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.7;margin:6px 0"><li>三层编译：<code>raw → wiki → schema</code>，原始只读、Wiki 由 LLM 生成、Schema(CLAUDE.md) 约束结构</li><li>Ingest 六步：投入资料 → 检索相关页 → LLM 抽取更新 → 写回页面 → 更新 <code>[[wikilink]]</code> → 刷新 index.md</li><li>结构化沉淀：实体/概念/流程分目录 + frontmatter，一次编译、持续复用</li><li>"编译一次而非每次重推"——与传统 RAG 每次从原文临时召回的本质区别</li></ul>
+      </div>
+      <div class="card" style="border-top:3px solid var(--accent-2)">
+        <h4>🔁 维护理念</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.7;margin:6px 0"><li>角色分工：人类策展来源/方向，LLM 包揽枯燥维护——不嫌烦、不遗忘、一次改 15 个文件</li><li>Lint 混合体系：确定性检查（断裂 wikilink、孤儿页、frontmatter 缺失）+ LLM 语义检查（矛盾、过时、缺口）</li><li>答案回填复利：Query 答完把结论回填进 wiki，新知识持续累积，越用越准</li><li>维护成本近零：无模型漂移、无 embedding 重算，坏了从原文 100% 重建</li></ul>
+      </div>
+    </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>03 · Karpathy 理念</span></div>
-    <div class="notes">Karpathy 是前 Tesla AI 总监、OpenAI 创始成员，2026 年发表了 LLM Wiki 方法论。核心理念一句话：传统 RAG 每次查询都从原文临时重新发现知识，没有积累；他主张让 LLM 增量构建并维护一个持久化 Wiki，知识编译一次、持续更新，Wiki 是个会复利的产物。三个关键设计：一是三层架构，原始资料只读、Wiki 由 LLM 生成的 markdown、Schema 告诉 LLM 怎么结构化；二是三大操作，Ingest 投入资料抽取更新页面、Query 提问带引用回答、Lint 定期健康检查找矛盾缺口；三是角色分工，人类策展提问，LLM 干所有枯燥维护。对我们最关键的洞察：index.md 这个内容目录在中等规模出奇地好用，可以完全不需要 embedding RAG 基础设施——这正好印证了我们按目录分类加按需加载原文的直觉。</div>
+    <div class="notes">Karpathy 是前 Tesla AI 总监、OpenAI 创始成员，2026 年发表了 LLM Wiki 方法论。核心理念一句话：传统 RAG 每次查询都从原文临时重新发现知识，没有积累；他主张让 LLM 增量构建并维护一个持久化 Wiki，知识编译一次、持续更新，Wiki 是个会复利的产物。三个关键设计：三层架构、三大操作、角色分工。最重要的洞察是 index.md 在中等规模出奇地好用，可以完全不需要 embedding RAG 基础设施，正好印证了我们按目录分类加按需加载原文的直觉。下半页展开两块。建设原理：三层编译 raw 到 wiki 到 schema，Ingest 六步——投入资料、检索相关页、LLM 抽取更新、写回页面、更新 wikilink、刷新 index.md，实体概念流程分目录加 frontmatter 做结构化沉淀，核心是编译一次而非每次重推。维护理念：角色分工人类策展 LLM 维护；Lint 是混合体系，确定性检查断裂链接孤儿页 frontmatter 缺失，LLM 做语义检查找矛盾过时缺口；答案回填复利，Query 答完把结论回填进 wiki，越用越准；维护成本近零，无模型漂移无 embedding 重算，坏了从原文 100% 重建。这两块正是我们 L1 摄入 pipeline 和 log.md/index.md 的思想源头。</div>
   </section>
 
   <!-- 15. 两大开源对比 -->
@@ -827,10 +865,13 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
           <span class="badge accent">grade_relevance · CRAG</span>
         </div>
         <div class="row mt-m" style="gap:18px">
-          <div><span class="dim">索引</span>　index.json（标题/摘要/关键词/章节锚点）</div>
+          <div><span class="dim">导航</span>　wiki/index.md（按 type 分组 + <code>[[slug|title]]</code> 链接）</div>
         </div>
         <div class="row mt-s" style="gap:18px">
-          <div><span class="dim">原文</span>　原始 MD（PDF→MD 清洗，全文不切片）</div>
+          <div><span class="dim">页面</span>　wiki/{sources,entities,concepts,process}/*.md（frontmatter: type/related/sources）</div>
+        </div>
+        <div class="row mt-s" style="gap:18px">
+          <div><span class="dim">原文</span>　md/*.md（PDF/Word/Excel→MD 清洗，全文不切片）</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:14px">
@@ -844,9 +885,9 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         </div>
       </div>
     </div>
-    <p class="dim mt-l"><b>关键差异：</b>方案 1-5 是"检索器"，知识不沉淀；本方案的 index.json + related_docs 让知识<b class="accent">结构化沉淀、可积累</b>——这正是 Karpathy "compounding artifact" 的工程实现。</p>
+    <p class="dim mt-l"><b>关键差异：</b>方案 1-5 是"检索器"，知识不沉淀；本方案的 wiki/ 页面树 + index.md + frontmatter <code>related</code> 让知识<b class="accent">结构化沉淀、可积累</b>——这正是 Karpathy "compounding artifact" 的工程实现。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>04 · 选型对比</span></div>
-    <div class="notes">这是推荐架构。结论是不要单选某方案，而是以 Agent 文件导航为主干，按需挂载其他底座。核心是 pi Agent 做主控，自主规划、多跳、自评停止，配五个工具：list_categories、list_documents、grep_docs、read_section、grade_relevance。索引用 index.json，存标题、摘要、关键词、章节锚点；原文是 PDF 清洗后的 MD，全文不切片。控制层方面，Self-RAG 答案自评和 CRAG 重检循环通过系统提示内嵌进 pi Agent，不用额外框架。可选挂载上，图表密集文档可挂 ColPali，未来语料增长再评估混合检索或 GraphRAG。最后强调关键差异：方案 1 到 5 都是检索器，知识不沉淀；本方案的 index.json 加 related_docs 让知识结构化沉淀、可积累，这就是 Karpathy 说的复利产物的工程实现。</div>
+    <div class="notes">这是推荐架构。结论是不要单选某方案，而是以 Agent 文件导航为主干，按需挂载其他底座。核心是 pi Agent 做主控，自主规划、多跳、自评停止，配五个工具：list_categories、list_documents、grep_docs、read_section、grade_relevance。导航靠 wiki/index.md 按类型分组加 wikilink；页面是 wiki 目录树下的四类页面带 frontmatter，related 记录关联；原文是 PDF、Word、Excel 清洗后的 MD，全文不切片。控制层方面，Self-RAG 答案自评和 CRAG 重检循环通过系统提示内嵌进 pi Agent，不用额外框架。可选挂载上，图表密集文档可挂 ColPali，未来语料增长再评估混合检索或 GraphRAG。最后强调关键差异：方案 1 到 5 都是检索器，知识不沉淀；本方案的 wiki 页面树加 index.md 加 related 让知识结构化沉淀、可积累，这就是 Karpathy 说的复利产物的工程实现。</div>
   </section>
 
   <!-- 18. 分阶段落地 -->
@@ -857,7 +898,7 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <div class="col now">
         <span class="tag">P0 · 主干</span>
         <h4>Agent 文件导航</h4>
-        <ul><li>index.json + BM25 grep</li><li>read_section 按需加载</li><li>grade_relevance 评分</li><li>覆盖 80% 查询</li></ul>
+        <ul><li>wiki/ 页面树 + index.md</li><li>grep_docs BM25 精确召回</li><li>read_section 按需加载</li><li>覆盖 80% 查询</li></ul>
       </div>
       <div class="col">
         <span class="tag">P1 · 质量</span>
@@ -877,7 +918,7 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     </div>
     <p class="dim mt-l">层间契约稳定：L3→L2 OpenAI 兼容端点 · L2→L1 只读 REST API · 内部演进不破坏。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>05 · 落地路线</span></div>
-    <div class="notes">落地分四步。P0 主干：先把 Agent 文件导航建起来，index.json 加 BM25 grep、read_section 按需加载、grade_relevance 评分，覆盖 80% 查询，这是最自包含、可独立验证的。P1 质量：在系统提示里内嵌 Self-RAG 自评和 CRAG 重检循环，实现多跳自我判断重试、带引用返回。P2 增强：对图表密集文档挂 ColPali 视觉检索作为可选工具。P3 远期：等未来多跳关系查询增多、语料增长，再评估混合检索或 GraphRAG，1000 份规模当前不需要。另外架构上三层契约是稳定的：L3 到 L2 走 OpenAI 兼容端点，L2 到 L1 走只读 REST API，内部演进不会破坏契约。</div>
+    <div class="notes">落地分四步。P0 主干：先把 Agent 文件导航建起来，wiki 页面树加 index.md、grep_docs BM25 精确召回、read_section 按需加载，覆盖 80% 查询，这是最自包含、可独立验证的。P1 质量：在系统提示里内嵌 Self-RAG 自评和 CRAG 重检循环，实现多跳自我判断重试、带引用返回。P2 增强：对图表密集文档挂 ColPali 视觉检索作为可选工具。P3 远期：等未来多跳关系查询增多、语料增长，再评估混合检索或 GraphRAG，1000 份规模当前不需要。另外架构上三层契约是稳定的：L3 到 L2 走 OpenAI 兼容端点，L2 到 L1 走只读 REST API，内部演进不会破坏契约。</div>
   </section>
 
   <!-- 19. 一句话结论 -->
