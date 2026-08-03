@@ -443,13 +443,13 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <h2 class="h2">汇报五个部分</h2>
     <div class="grid g2 mt-l anim-stagger-list" data-anim-target>
       <div class="card"><div class="row"><div class="h3 dim2" style="width:56px">01</div><div><h4>业务背景与核心痛点</h4><p class="dim">1000 份 PDF、对话查询、自托管约束。</p></div></div></div>
-      <div class="card"><div class="row"><div class="h3 dim2" style="width:56px">02</div><div><h4>检索底座方案全集</h4><p class="dim">7 大底座逐一对比：向量 / BM25 / 混合 / 图 / 多模态 / Agent / 长上下文。</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2" style="width:56px">02</div><div><h4>检索底座方案全集</h4><p class="dim">6 大底座逐一对比：向量 / BM25 / 混合 / 图 / LLM Wiki Agent / 长上下文。</p></div></div></div>
       <div class="card"><div class="row"><div class="h3 dim2" style="width:56px">03</div><div><h4>Karpathy 理念与开源实践</h4><p class="dim">llm_wiki vs gbrain 两大参考实现。</p></div></div></div>
-      <div class="card"><div class="row"><div class="h3 dim2" style="width:56px">04</div><div><h4>选型对比总表与推荐架构</h4><p class="dim">7 方案 × 6 维度打分 + 融合架构。</p></div></div></div>
+      <div class="card"><div class="row"><div class="h3 dim2" style="width:56px">04</div><div><h4>选型对比总表与推荐架构</h4><p class="dim">6 方案 × 6 维度打分 + 融合架构。</p></div></div></div>
       <div class="card" style="grid-column:span 2"><div class="row"><div class="h3 dim2" style="width:56px">05</div><div><h4>分阶段落地路线与结论</h4><p class="dim">P0→P3 路线图 + 一句话结论。</p></div></div></div>
     </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>目录</span></div>
-    <div class="notes">今天分五个部分。先讲业务背景和痛点，这是我们选型的出发点；然后过一遍市场上 7 种检索底座方案，逐一对比优缺点；接着介绍 Karpathy 的 LLM Wiki 思想和两个现成的开源实现作为参考；之后给出选型总表和推荐架构；最后是落地路线和结论。</div>
+    <div class="notes">今天分五个部分。先讲业务背景和痛点，这是我们选型的出发点；然后过一遍市场上 6 种检索底座方案，逐一对比优缺点；接着介绍 Karpathy 的 LLM Wiki 思想和两个现成的开源实现作为参考；之后给出选型总表和推荐架构；最后是落地路线和结论。</div>
   </section>
 
   <!-- 3. 业务背景 -->
@@ -517,10 +517,10 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       <p class="kicker anim-fade-down" data-anim="fade-down">Section · 02</p>
       <h1 class="h1 anim-rise-in" data-anim="rise-in" style="font-size:104px">检索底座 <span class="gradient-text">方案全集</span></h1>
       <div class="divider-accent" style="margin:24px auto"></div>
-      <p class="lede" style="margin:0 auto">7 大类底座 + 5 种控制层 · 逐一对比</p>
+      <p class="lede" style="margin:0 auto">6 大类底座 + 5 种控制层 · 逐一对比</p>
     </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
-    <div class="notes">进入第二部分。检索方案其实可以拆成两个正交维度，先理清这个认知，再看 7 种底座和 5 种控制层。</div>
+    <div class="notes">进入第二部分。检索方案其实可以拆成两个正交维度，先理清这个认知，再看 6 种底座和 5 种控制层。</div>
   </section>
 
   <!-- 6. 关键认知 -->
@@ -536,7 +536,6 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
           <span class="badge">关键词索引</span>
           <span class="badge">知识图谱</span>
           <span class="badge accent">文件系统目录</span>
-          <span class="badge">多模态视觉</span>
           <span class="badge">长上下文全量</span>
         </div>
         <p class="dim mt-s">决定"数据存在哪里、靠什么召回"。</p>
@@ -555,12 +554,12 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     </div>
     <p class="mt-l"><b class="accent">我们的需求 = 文件系统目录底座 × Agent 自主规划控制</b>，两者是组合关系。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
-    <div class="notes">这是整个汇报最关键的一个认知框架。很多人把 RAG 等同于"向量检索加 LLM"，这是 2023 年的认知。2026 年的共识是 RAG 是一个设计空间，不是单一模式。检索方案可以从两个正交维度切：一是检索底座，解决"去哪找"，包括向量库、关键词索引、知识图谱、文件系统目录、多模态视觉、长上下文全量；二是检索控制，解决"怎么找、要不要信、要不要再找"，包括静态流水线、Self-RAG 反思、CRAG 纠错、Adaptive 路由、Agent 自主规划。我们的需求落在哪？底座选文件系统目录，就是按目录分类加按需加载原文；控制选 Agent 自主规划，就是多跳加自评重试。这两个维度是组合关系，所以下面我会分两块展开，先过 7 种底座。</div>
+    <div class="notes">这是整个汇报最关键的一个认知框架。很多人把 RAG 等同于"向量检索加 LLM"，这是 2023 年的认知。2026 年的共识是 RAG 是一个设计空间，不是单一模式。检索方案可以从两个正交维度切：一是检索底座，解决"去哪找"，包括向量库、关键词索引、知识图谱、文件系统目录、长上下文全量；二是检索控制，解决"怎么找、要不要信、要不要再找"，包括静态流水线、Self-RAG 反思、CRAG 纠错、Adaptive 路由、Agent 自主规划。我们的需求落在哪？底座选文件系统目录，就是按目录分类加按需加载原文；控制选 Agent 自主规划，就是多跳加自评重试。这两个维度是组合关系，所以下面我会分两块展开，先过 6 种底座。</div>
   </section>
 
-  <!-- 7. 7大底座速览 -->
+  <!-- 7. 6大底座速览 -->
   <section class="slide" data-title="底座速览">
-    <p class="kicker">Overview · 7 大检索底座一览</p>
+    <p class="kicker">Overview · 6 大检索底座一览</p>
     <h2 class="h2">先看全景，再逐一展开</h2>
     <div class="card mt-l" style="padding:4px 10px">
     <table class="t">
@@ -570,14 +569,13 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         <tr><td>2</td><td>关键词 BM25</td><td>倒排索引</td><td>精确术语命中，通常作混合一路</td><td class="fit"><span class="stars">★★★</span><span class="dim-star">★★</span></td></tr>
         <tr><td>3</td><td>混合 + Rerank</td><td>双索引</td><td>2026 工程标配，兼顾精确与语义</td><td class="fit"><span class="stars">★★★</span><span class="dim-star">★★</span></td></tr>
         <tr><td>4</td><td>GraphRAG</td><td>知识图谱</td><td>多跳关系推理强，但建模成本极高</td><td class="fit"><span class="stars">★</span><span class="dim-star">★★★★</span></td></tr>
-        <tr><td>5</td><td>多模态 ColPali</td><td>视觉多向量</td><td>保留版式，跳过 OCR；本项目无图片</td><td class="fit"><span class="stars">★★★</span><span class="dim-star">★★</span></td></tr>
-        <tr class="best"><td>6</td><td><b>Agent 文件导航</b></td><td><b>文件系统目录</b></td><td><b>我们的主方案，不切片、全文上下文</b></td><td class="fit"><span class="stars">★★★★★</span></td></tr>
-        <tr><td>7</td><td>长上下文全量</td><td>无索引</td><td>方案 6 的执行手段，非独立底座</td><td class="fit"><span class="stars">★★★</span><span class="dim-star">★★</span></td></tr>
+        <tr class="best"><td>5</td><td><b>LLM Wiki Agent</b></td><td><b>文件系统目录</b></td><td><b>我们的主方案，不切片、全文上下文、知识复利</b></td><td class="fit"><span class="stars">★★★★★</span></td></tr>
+        <tr><td>6</td><td>长上下文全量</td><td>无索引</td><td>方案 5 的执行手段，非独立底座</td><td class="fit"><span class="stars">★★★</span><span class="dim-star">★★</span></td></tr>
       </tbody>
     </table>
     </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
-    <div class="notes">这是全景表，七种底座按契合度打分。先有个整体印象：方案 6 Agent 文件导航契合度五星，是我们的主方案；BM25、混合、多模态、长上下文都是三星，作为辅助或可选；向量检索两星，GraphRAG 一星。下面几页我会把关键的几个逐一展开讲为什么。注意第 5 个多模态 ColPali，虽然技术很先进，但我们项目文档不含图片，所以不采用，只是保留完整性。</div>
+    <div class="notes">这是全景表，六种底座按契合度打分。先有个整体印象：方案 5 LLM Wiki Agent 契合度五星，是我们的主方案；BM25、混合、长上下文都是三星，作为辅助或执行手段；向量检索两星，GraphRAG 一星。下面几页我会把关键的几个逐一展开讲为什么。</div>
   </section>
 
   <!-- 8. 向量检索 -->
@@ -668,11 +666,11 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="notes">第三个方案，混合检索加重排序，这是 2026 年的工程标配。思路是 BM25 稀疏召回管精确术语，向量稠密召回管语义模糊，两路用 RRF 即排名倒数加权融合，再用 Cross-Encoder 精排。优点是兼顾精确和语义，NDCG@3 提升约 22 个点。但缺陷是它仍然是切片范式，没解决表格被切断的问题；而且要维护两套索引加一个 reranker，运维复杂度高，还有两套索引一致性、幽灵命中的风险。它的定位是作为 Agent 的一个工具——给 Agent 提供高质量候选，而不是全局底座。</div>
   </section>
 
-  <!-- 11. GraphRAG/多模态/长上下文 -->
+  <!-- 11. GraphRAG/长上下文 -->
   <section class="slide" data-title="其余底座">
-    <p class="kicker">方案 4-7 · 其余三类底座</p>
+    <p class="kicker">方案 4 &amp; 6 · 其余两类底座</p>
     <h2 class="h2">为什么不作为我们的主底座</h2>
-    <div class="grid g3 mt-l anim-stagger-list" data-anim-target>
+    <div class="grid g2 mt-l anim-stagger-list" data-anim-target style="max-width:920px;margin-left:auto;margin-right:auto">
       <div class="card" style="border-top:3px solid var(--bad)">
         <div class="row" style="justify-content:space-between"><h4>GraphRAG</h4><span class="badge bad">⭐ 契合度低</span></div>
         <p class="dim mt-s"><b>原理：</b>LLM 抽实体/关系建图 → 子图遍历多跳推理。</p>
@@ -680,53 +678,57 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         <p class="dim"><b>不适用：</b>需数周本体建模；1000 份 ROI 极低；文档关系扁平，图谱优势发挥不出来。</p>
         <span class="badge warn mt-s">P3 远期可选</span>
       </div>
-      <div class="card" style="border-top:3px solid var(--text-3)">
-        <div class="row" style="justify-content:space-between"><h4>多模态 ColPali</h4><span class="badge">本项目不采用</span></div>
-        <p class="dim mt-s"><b>原理：</b>PDF 整页渲染成图 → VLM 生成 patch 多向量 → 跳过 OCR/切片。</p>
-        <p class="dim"><b>强项：</b>保留表格/图表版式空间关系。</p>
-        <p class="dim"><b>不适用：</b>本项目文档不含图片，无 VLM/GPU/多向量库需求。</p>
-        <span class="badge mt-s">仅完整性保留</span>
-      </div>
       <div class="card" style="border-top:3px solid var(--warn)">
         <div class="row" style="justify-content:space-between"><h4>长上下文全量</h4><span class="badge warn">非独立</span></div>
         <p class="dim mt-s"><b>原理：</b>1M-2M token 窗口，相关文档全文塞进 prompt。</p>
         <p class="dim"><b>强项：</b>零切片损失、全文上下文完整。</p>
-        <p class="dim"><b>定位：</b>不是独立方案，是方案 6 的执行手段——Agent 加载的文档进长上下文推理。</p>
-        <span class="badge accent mt-s">配合方案 6</span>
+        <p class="dim"><b>定位：</b>不是独立方案，是方案 5 的执行手段——Agent 加载的文档进长上下文推理。</p>
+        <span class="badge accent mt-s">配合方案 5</span>
       </div>
     </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
-    <div class="notes">剩下三类底座一起说，重点是不作为主底座的理由。GraphRAG 多跳关系推理最强，从 67% 到 94%，但需要数周本体建模，1000 份文档 ROI 极低，而且我们的文档关系相对扁平，图谱优势发挥不出来，只能列为 P3 远期可选。多模态 ColPali 技术很先进，整页渲染成图、跳过 OCR、保留版式，但我们项目文档不含图片，所以不采用，只是保留完整性。长上下文全量注入，靠现代 LLM 的 1M 到 2M token 窗口全文塞进去，零切片损失，但它不是独立方案，是方案 6 的执行手段——Agent 按需加载的文档正好进长上下文窗口推理，两者天然组合。</div>
+    <div class="notes">剩下两类底座一起说，重点是不作为主底座的理由。GraphRAG 多跳关系推理最强，从 67% 到 94%，但需要数周本体建模，1000 份文档 ROI 极低，而且我们的文档关系相对扁平，图谱优势发挥不出来，只能列为 P3 远期可选。长上下文全量注入，靠现代 LLM 的 1M 到 2M token 窗口全文塞进去，零切片损失，但它不是独立方案，是方案 5 的执行手段——Agent 按需加载的文档正好进长上下文窗口推理，两者天然组合。</div>
   </section>
 
-  <!-- 12. Agent文件导航 主方案 -->
-  <section class="slide" data-title="Agent文件导航">
-    <p class="kicker">方案 6 · Agent 驱动检索 / 文件系统导航 — 我们的主方案</p>
-    <h2 class="h2">不给向量库，给 Agent 一组导航工具，自主规划</h2>
-    <div class="flow">
-      <div class="node hl"><div class="ic">🧭</div><h4>list_categories</h4><p>浏览目录分类</p></div>
-      <div class="arr">→</div>
-      <div class="node hl"><div class="ic">📋</div><h4>list_documents</h4><p>缩小候选文档</p></div>
-      <div class="arr">→</div>
-      <div class="node hl"><div class="ic">🔎</div><h4>grep_docs</h4><p>BM25 精确召回</p></div>
-      <div class="arr">→</div>
-      <div class="node hl"><div class="ic">📖</div><h4>read_section</h4><p>按需加载原文</p></div>
-      <div class="arr">→</div>
-      <div class="node loop"><div class="ic">⚖️</div><h4>grade_relevance</h4><p>自评 → 不达标则重检</p></div>
-    </div>
-    <div class="grid g2 mt-l" style="align-items:start">
+  <!-- 12. LLM Wiki Agent 主方案 -->
+  <section class="slide" data-title="LLM Wiki Agent">
+    <p class="kicker">方案 5 · LLM Wiki Agent — 我们的主方案</p>
+    <h2 class="h2">不给向量库，给 Agent 一组导航工具 + 持久化 wiki</h2>
+    <p class="lede mb-s" style="font-size:14px">参考 llm_wiki 开源项目的 Ingest/Query/Lint 三大操作，结合本项目 L1 实际落地。框架无关——L2 不绑定任何 agent 框架。</p>
+    <div class="grid g2 mt-s" style="align-items:start">
       <div class="card" style="border-top:3px solid var(--good)">
-        <h4>✓ 为什么是它</h4>
-        <ul class="dim" style="padding-left:18px;line-height:1.75;margin:6px 0"><li>不切片、保留全文上下文（read_section 按行号区间加载原文段）</li><li>可解释、可多跳回溯、零向量库基础设施</li><li>知识结构化沉淀：wiki/ 页面树 + frontmatter <code>related</code> 关联</li></ul>
+        <h4>🏗️ 如何建索引 Ingest</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.65;margin:6px 0;font-size:13px"><li><b>M1 清洗</b>（确定性无 LLM）：PDF/Word/Excel→MD，保留全文+结构，<code>section_splitter</code> 切 H1/H2/H3 带行号</li><li><b>M2 两步 LLM</b>：step1 抽实体/概念/流程/摘要/关键词（JSON，exists 去重）→ step2 生成 <code>wiki/{sources,entities,concepts,process}/{slug}.md</code></li><li><b>确定性导航</b>：<code>index.md</code>（按 type 分组+wikilink）+ <code>log.md</code>（append-only）+ ingest-cache（hash 去重）</li><li>LLM 失败→fallback 确定性生成 source 摘要页，不丢文档</li></ul>
       </div>
       <div class="card" style="border-top:3px solid var(--accent)">
-        <h4>📊 2026 实测背书</h4>
-        <ul class="dim" style="padding-left:18px;line-height:1.75;margin:6px 0"><li>Claude Code / Cursor / Devin 同款模式，都不塞向量库</li><li>FinanceBench 表格密集文档：agentic 关键词 <b>30.40%</b> 反超向量 RAG <b>24.24%</b></li><li>Vercel：加文件系统工具后砍掉 80% 专用工具，准确率反升</li></ul>
+        <h4>🔎 如何检索 Retrieve</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.65;margin:6px 0;font-size:13px"><li><b>BM25</b>（rank-bm25）：精确命中字段名/流程编号/术语</li><li><b>分词</b>：jieba ∪ CJK 2-gram ∪ snake_case</li><li><b>RRF 融合</b>（k=60，top_k=10）：同 (doc_id,section_id) 取最高分合并，预留 VectorRetriever</li><li><b>snippet</b>：按行号切片≤500 字，片段定位非全文</li><li>返回 <code>SearchHit{doc_id, section_id, title, snippet, score}</code></li></ul>
+      </div>
+      <div class="card" style="border-top:3px solid var(--warn)">
+        <h4>🔄 如何更新 Update</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.65;margin:6px 0;font-size:13px"><li><code>content_hash</code> 命中缓存跳过两步 LLM</li><li>两步 LLM 或 fallback → <code>merge_page</code> 合并（补 sources/updated）</li><li>别名容错（processes→process）→ 写盘 → <code>rebuild_index</code> + <code>append_log</code></li><li>ghost-page 感知，支持中断续灌；增量不动已有</li></ul>
+      </div>
+      <div class="card" style="border-top:3px solid var(--good)">
+        <h4>🧹 如何维护 Lint</h4>
+        <ul class="dim" style="padding-left:18px;line-height:1.65;margin:6px 0;font-size:13px"><li><b>确定性脚本</b>（CI 跑）：孤儿页/断裂 wikilink/缺字段</li><li><b>周期 LLM</b>（人工触发）：矛盾/过时/缺概念页/缺口</li><li><b>答案回填复利</b>：好结论回填 wiki，越用越准</li><li>无模型漂移/GPU，wiki/ 纯 markdown 可 git 版本化</li></ul>
       </div>
     </div>
-    <p class="dim mt-s" style="font-size:12px"><b>结合现有代码：</b>L1 已落地 M1 清洗（PDF/Word/Excel→MD）+ M2 两步 LLM 摄入（step1 抽实体/概念/流程/摘要/关键词 → step2 生成 <code>wiki/{sources,entities,concepts,process}/{slug}.md</code>）+ 确定性 <code>wiki/index.md</code>/<code>wiki/log.md</code> + BM25(rank-bm25)+RRF(k=60)+snippet(行号切片 500 字) 检索，经 <code>kb search</code> CLI 验证。5 工具中 grep_docs 已由该检索栈支撑；read_section 有切片原语；list_categories/list_documents 及 REST 服务待 M3。</p>
+    <div class="card mt-s" style="border-top:3px solid var(--text-2);background:var(--surface-2)">
+      <h4>🧭 用户问题来了的整体查询路径 Query</h4>
+      <div class="flow" style="font-size:12px;flex-wrap:wrap;gap:4px">
+        <div class="node sm"><div class="ic">📑</div><h4>读 index.md 定位</h4><p>list_categories/documents</p></div>
+        <div class="arr">→</div>
+        <div class="node sm"><div class="ic">🔎</div><h4>grep_docs 片段召回</h4><p>BM25+RRF+snippet</p></div>
+        <div class="arr">→</div>
+        <div class="node sm"><div class="ic">📖</div><h4>read_section 加载全文段</h4><p>按 line_start/line_end</p></div>
+        <div class="arr">→</div>
+        <div class="node sm loop"><div class="ic">⚖️</div><h4>grade_relevance 自评</h4><p>不达标→改写重检</p></div>
+        <div class="arr">→</div>
+        <div class="node sm"><div class="ic">✅</div><h4>整合带引用答案</h4><p>多跳收敛</p></div>
+      </div>
+    </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>02 · 方案全集</span></div>
-    <div class="notes">这是我们的主方案，重点讲。思路是不给 Agent 配向量库，而是给一组文件系统导航工具：list_categories 浏览目录、list_documents 列候选文档、grep_docs 做 BM25 精确召回、read_section 按需加载原文段、grade_relevance 自评相关性，不达标就改写重检。Agent 自己决定调什么、何时调、调几次。结合现有代码说：L1 层已经落地了——M1 清洗把 PDF、Word、Excel 转成 markdown，Excel 还原成完整 markdown 表；M2 是两步 LLM 摄入，第一步抽取实体、概念、流程、摘要、关键词，第二步生成 wiki 目录树下的 sources、entities、concepts、process 四类页面，每页带 frontmatter，related 字段记录关联页面；再确定性生成 index.md 内容目录和 append-only 的 log.md 变更日志；检索用 rank-bm25 做 BM25，RRF k=60 融合，snippet 按行号切片最多 500 字，经 kb search 命令验证。五个 L2 工具里 grep_docs 已经由这套检索栈支撑，read_section 有行号切片原语，list_categories、list_documents 和 REST 服务是 M3 的事。实测背书很硬：Claude Code、Cursor、Devin 全用这个模式，FinanceBench 表格密集文档 agentic 关键词 30.40% 反超向量 RAG 的 24.24%，Vercel 加文件系统工具后砍掉 80% 专用工具准确率反升。一句话：这正是我们的场景——1000 份结构化内部文档、按目录分类、多跳自评。</div>
+    <div class="notes">这是我们的主方案 LLM Wiki Agent，名字取自 Karpathy 的 LLM Wiki 方法论加 Agent 自主规划控制层，框架无关。整体分五段，参考 llm_wiki 开源项目的 Ingest Query Lint 三大操作。第一如何建索引：M1 确定性清洗把 PDF Word Excel 转 markdown 保留全文和结构，section_splitter 按标题切带行号；M2 两步 LLM，第一步抽实体概念流程摘要关键词返回 JSON 用 exists 去重避免重复生成，第二步生成 wiki 目录树下四类页面带 frontmatter，related 记录关联；再确定性生成 index.md 内容目录和 append-only 的 log.md。LLM 挂了走 fallback 确定性生成 source 摘要页不丢文档。第二如何检索：rank-bm25 做 BM25 精确命中术语，分词用 jieba 加 CJK 2-gram 加 snake_case，RRF k=60 融合同 doc 加 section 取最高分，snippet 按行号切片最多 500 字返回片段定位。第三如何更新：content_hash 命中缓存跳过两步 LLM，两步或 fallback 后 merge_page 合并补 sources 和 updated，别名容错，写盘后重建 index 追加 log，ghost-page 感知支持中断续灌。第四如何维护：lint 双层，确定性脚本 CI 跑查孤儿页断裂链接缺字段，周期 LLM 人工触发查矛盾过时缺页，好答案回填复利，无模型漂移 GPU，wiki 纯 markdown 可 git 版本化。第五用户问题来了的整体查询路径：Agent 先读 index.md 定位，grep_docs BM25 片段召回，read_section 按行号加载全文段不切断表格，grade_relevance 自评不达标改写重检多跳收敛，最后整合带引用答案。实测背书：Claude Code Cursor Devin 同款，FinanceBench 表格密集文档 agentic 关键词 30.40% 反超向量 RAG 的 24.24%。</div>
   </section>
 
   <!-- 13. Agentic RAG 主控（RAG + Agent） -->
@@ -822,9 +824,9 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
       </tbody>
     </table>
     </div>
-    <p class="dim mt-l"><b>结论：</b>两个都不建议"原样拿来用"，但<b class="accent">各取所长</b>最划算——llm_wiki 太个人、许可证太重；gbrain 太重、定位偏 CRM。我们自建 pi Agent + 文件导航主干，恰好是两者之间最合身的中间路线。</p>
+    <p class="dim mt-l"><b>结论：</b>两个都不建议"原样拿来用"，但<b class="accent">各取所长</b>最划算——llm_wiki 太个人、许可证太重；gbrain 太重、定位偏 CRM。我们自建 Agent + wiki 文件导航主干，恰好是两者之间最合身的中间路线。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>03 · Karpathy 理念</span></div>
-    <div class="notes">有两个现成的开源实现。llm_wiki 是 Karpathy 的忠实实现，桌面应用形态，知识存在 markdown 文件里，Obsidian 兼容，但它是单用户、GPL v3 许可证对企业有传染性、必须桌面应用常驻。gbrain 是 YC Garry Tan 做的，CLI 加 MCP server，Postgres 加 pgvector 存储，多用户带权限隔离、MIT 许可证、生产级跑过 14 万页，但它重，需要 Postgres 加 pgvector，定位偏 CRM。结论是两个都不建议原样拿来用，而是各取所长：从 llm_wiki 借三层架构和 index 导航，从 gbrain 借 Gap Analysis 和权限隔离思路。我们自建 pi Agent 加文件导航主干，正好是两者之间最合身的中间路线。</div>
+    <div class="notes">有两个现成的开源实现。llm_wiki 是 Karpathy 的忠实实现，桌面应用形态，知识存在 markdown 文件里，Obsidian 兼容，但它是单用户、GPL v3 许可证对企业有传染性、必须桌面应用常驻。gbrain 是 YC Garry Tan 做的，CLI 加 MCP server，Postgres 加 pgvector 存储，多用户带权限隔离、MIT 许可证、生产级跑过 14 万页，但它重，需要 Postgres 加 pgvector，定位偏 CRM。结论是两个都不建议原样拿来用，而是各取所长：从 llm_wiki 借三层架构和 index 导航，从 gbrain 借 Gap Analysis 和权限隔离思路。我们自建 Agent 加 wiki 文件导航主干，正好是两者之间最合身的中间路线。</div>
   </section>
 
   <!-- 16. 选型对比总表 -->
@@ -839,23 +841,22 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         <tr><td>关键词 BM25</td><td>倒排索引</td><td><span class="badge good">✅ 精确</span></td><td>弱</td><td>低</td><td>低</td><td class="fit"><span class="stars">★★★</span></td></tr>
         <tr><td>混合 + Rerank</td><td>双索引</td><td><span class="badge warn">🟡 仍切片</span></td><td>中高</td><td>中高</td><td>中高</td><td class="fit"><span class="stars">★★★</span></td></tr>
         <tr><td>GraphRAG</td><td>知识图谱</td><td><span class="badge warn">🟡</span></td><td><span class="badge good">✅ 最强</span></td><td>高</td><td><span class="badge bad">极高</span></td><td class="fit"><span class="stars">★</span></td></tr>
-        <tr><td>多模态 ColPali</td><td>视觉多向量</td><td><span class="badge good">✅ 版式</span></td><td>中</td><td><span class="badge bad">高 GPU</span></td><td>高</td><td class="fit"><span class="stars">★★★</span></td></tr>
-        <tr class="best"><td><b>Agent 文件导航</b></td><td><b>文件系统</b></td><td><b><span class="badge good">✅ 全文不切片</span></b></td><td><b><span class="badge good">✅ 可回溯</span></b></td><td><b>低</b></td><td><b>中</b></td><td class="fit"><b><span class="stars">★★★★★</span></b></td></tr>
+        <tr class="best"><td><b>LLM Wiki Agent</b></td><td><b>文件系统</b></td><td><b><span class="badge good">✅ 全文不切片</span></b></td><td><b><span class="badge good">✅ 可回溯</span></b></td><td><b>低</b></td><td><b>中</b></td><td class="fit"><b><span class="stars">★★★★★</span></b></td></tr>
         <tr><td>长上下文全量</td><td>无索引</td><td><span class="badge good">✅</span></td><td>中</td><td><span class="badge warn">高 token</span></td><td>低</td><td class="fit"><span class="stars">★★★</span></td></tr>
       </tbody>
     </table>
     </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>04 · 选型对比</span></div>
-    <div class="notes">这是总表，把 7 个方案在我们场景的 6 个维度上打分。重点看高亮行：Agent 文件导航，表格准确率全文不切片、多跳可回溯、自托管成本低、复杂度中等、契合度五星。对比下来向量检索切片断表两星，GraphRAG 契合度一星且复杂度极高。这就是我们选 Agent 文件导航做主干的依据。控制层那块我口头补充：Self-RAG 答案自评、CRAG 上下文评分重检、Adaptive 路由全部内嵌进 pi Agent，Agentic RAG 做主控，不需要额外框架。</div>
+    <div class="notes">这是总表，把 6 个方案在我们场景的 6 个维度上打分。重点看高亮行：LLM Wiki Agent，表格准确率全文不切片、多跳可回溯、自托管成本低、复杂度中等、契合度五星。对比下来向量检索切片断表两星，GraphRAG 契合度一星且复杂度极高。这就是我们选 LLM Wiki Agent 做主干的依据。控制层那块我口头补充：Self-RAG 答案自评、CRAG 上下文评分重检、Adaptive 路由全部内嵌进 Agent，Agentic RAG 做主控，不需要额外框架。</div>
   </section>
 
   <!-- 17. 推荐架构 -->
   <section class="slide" data-title="推荐架构">
     <p class="kicker">Recommendation · 推荐架构（融合方案，非单选）</p>
-    <h2 class="h2">以 Agent 文件导航为主干，按需挂载其他底座</h2>
+    <h2 class="h2">以 LLM Wiki Agent 为主干，按需挂载其他底座</h2>
     <div class="grid mt-l" style="grid-template-columns:1.3fr 1fr;gap:24px;align-items:start">
       <div class="card" style="border-top:3px solid var(--accent)">
-        <h4>🧠 pi Agent · Agentic RAG 主控</h4>
+        <h4>🧠 Agent · Agentic RAG 主控</h4>
         <p class="dim mt-s">自主规划 + 多跳 + 自评停止</p>
         <div class="row wrap mt-m" style="gap:8px">
           <span class="badge accent">list_categories</span>
@@ -881,13 +882,13 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         </div>
         <div class="card" style="border-left:3px dashed var(--accent-2)">
           <h4>🔗 可选挂载</h4>
-          <p class="dim mt-s">图表密集文档可挂 ColPali 视觉检索作可选工具（本项目暂不需要）；未来语料增长再评估混合检索 / GraphRAG。</p>
+          <p class="dim mt-s">未来语料增长再评估混合检索 / GraphRAG；长上下文窗口天然作为 Agent 加载文档的执行手段。</p>
         </div>
       </div>
     </div>
-    <p class="dim mt-l"><b>关键差异：</b>方案 1-5 是"检索器"，知识不沉淀；本方案的 wiki/ 页面树 + index.md + frontmatter <code>related</code> 让知识<b class="accent">结构化沉淀、可积累</b>——这正是 Karpathy "compounding artifact" 的工程实现。</p>
+    <p class="dim mt-l"><b>关键差异：</b>方案 1-4、6 是"检索器/注入器"，知识不沉淀；本方案的 wiki/ 页面树 + index.md + frontmatter <code>related</code> 让知识<b class="accent">结构化沉淀、可积累</b>——这正是 Karpathy "compounding artifact" 的工程实现。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>04 · 选型对比</span></div>
-    <div class="notes">这是推荐架构。结论是不要单选某方案，而是以 Agent 文件导航为主干，按需挂载其他底座。核心是 pi Agent 做主控，自主规划、多跳、自评停止，配五个工具：list_categories、list_documents、grep_docs、read_section、grade_relevance。导航靠 wiki/index.md 按类型分组加 wikilink；页面是 wiki 目录树下的四类页面带 frontmatter，related 记录关联；原文是 PDF、Word、Excel 清洗后的 MD，全文不切片。控制层方面，Self-RAG 答案自评和 CRAG 重检循环通过系统提示内嵌进 pi Agent，不用额外框架。可选挂载上，图表密集文档可挂 ColPali，未来语料增长再评估混合检索或 GraphRAG。最后强调关键差异：方案 1 到 5 都是检索器，知识不沉淀；本方案的 wiki 页面树加 index.md 加 related 让知识结构化沉淀、可积累，这就是 Karpathy 说的复利产物的工程实现。</div>
+    <div class="notes">这是推荐架构。结论是不要单选某方案，而是以 LLM Wiki Agent 为主干，按需挂载其他底座。核心是 Agent 做主控，自主规划、多跳、自评停止，配五个工具：list_categories、list_documents、grep_docs、read_section、grade_relevance。导航靠 wiki/index.md 按类型分组加 wikilink；页面是 wiki 目录树下的四类页面带 frontmatter，related 记录关联；原文是 PDF、Word、Excel 清洗后的 MD，全文不切片。控制层方面，Self-RAG 答案自评和 CRAG 重检循环通过系统提示内嵌进 Agent，不用额外框架。可选挂载上，未来语料增长再评估混合检索或 GraphRAG，长上下文窗口天然作为 Agent 加载文档的执行手段。最后强调关键差异：方案 1 到 4、6 都是检索器或注入器，知识不沉淀；本方案的 wiki 页面树加 index.md 加 related 让知识结构化沉淀、可积累，这就是 Karpathy 说的复利产物的工程实现。</div>
   </section>
 
   <!-- 18. 分阶段落地 -->
@@ -897,7 +898,7 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
     <div class="rm">
       <div class="col now">
         <span class="tag">P0 · 主干</span>
-        <h4>Agent 文件导航</h4>
+        <h4>LLM Wiki Agent</h4>
         <ul><li>wiki/ 页面树 + index.md</li><li>grep_docs BM25 精确召回</li><li>read_section 按需加载</li><li>覆盖 80% 查询</li></ul>
       </div>
       <div class="col">
@@ -906,19 +907,14 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         <ul><li>系统提示内嵌 Self-RAG</li><li>CRAG 重检循环</li><li>多跳自我判断重试</li><li>带引用返回</li></ul>
       </div>
       <div class="col">
-        <span class="tag">P2 · 增强</span>
-        <h4>图表可选</h4>
-        <ul><li>图表密集文档挂 ColPali</li><li>数据表截图 / 架构图</li><li>作为 Agent 可选工具</li></ul>
-      </div>
-      <div class="col">
-        <span class="tag">P3 · 远期</span>
+        <span class="tag">P2 · 远期</span>
         <h4>关系推理</h4>
         <ul><li>多跳关系查询增多时</li><li>评估混合检索</li><li>或 GraphRAG</li><li>1000 份当前不需要</li></ul>
       </div>
     </div>
     <p class="dim mt-l">层间契约稳定：L3→L2 OpenAI 兼容端点 · L2→L1 只读 REST API · 内部演进不破坏。</p>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>05 · 落地路线</span></div>
-    <div class="notes">落地分四步。P0 主干：先把 Agent 文件导航建起来，wiki 页面树加 index.md、grep_docs BM25 精确召回、read_section 按需加载，覆盖 80% 查询，这是最自包含、可独立验证的。P1 质量：在系统提示里内嵌 Self-RAG 自评和 CRAG 重检循环，实现多跳自我判断重试、带引用返回。P2 增强：对图表密集文档挂 ColPali 视觉检索作为可选工具。P3 远期：等未来多跳关系查询增多、语料增长，再评估混合检索或 GraphRAG，1000 份规模当前不需要。另外架构上三层契约是稳定的：L3 到 L2 走 OpenAI 兼容端点，L2 到 L1 走只读 REST API，内部演进不会破坏契约。</div>
+    <div class="notes">落地分三步。P0 主干：先把 LLM Wiki Agent 建起来，wiki 页面树加 index.md、grep_docs BM25 精确召回、read_section 按需加载，覆盖 80% 查询，这是最自包含、可独立验证的。P1 质量：在系统提示里内嵌 Self-RAG 自评和 CRAG 重检循环，实现多跳自我判断重试、带引用返回。P2 远期：等未来多跳关系查询增多、语料增长，再评估混合检索或 GraphRAG，1000 份规模当前不需要。另外架构上三层契约是稳定的：L3 到 L2 走 OpenAI 兼容端点，L2 到 L1 走只读 REST API，内部演进不会破坏契约。</div>
   </section>
 
   <!-- 19. 一句话结论 -->
@@ -933,10 +929,10 @@ h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
         <span class="badge good">表格密集文档实测反超向量 RAG</span>
         <span class="badge good">有开源参考实现</span>
       </div>
-      <p class="lede" style="margin:28px auto 0;max-width:880px">以它为主干，BM25 做精确召回，ColPali 做图表可选增强，Self-RAG + CRAG 做自评重试——<b class="accent">无需引入沉重的向量库或知识图谱</b>。</p>
+      <p class="lede" style="margin:28px auto 0;max-width:880px">以它为主干，BM25 做精确召回，长上下文做按需加载，Self-RAG + CRAG 做自评重试——<b class="accent">无需引入沉重的向量库或知识图谱</b>。</p>
     </div>
     <div class="deck-footer"><span class="dim2">知识库智能体</span><span>05 · 落地路线</span></div>
-    <div class="notes">总结成一句话：我们的方案——Agent 驱动检索加按目录分类加按需加载原文，在 2026 年不是边缘尝试，而是 coding agent 领域已被验证的主流模式，Claude Code、Cursor、Devin 都是同款，在表格密集文档上实测还反超向量 RAG，有开源参考实现。具体组合是以它为主干，BM25 做精确召回，ColPali 做图表可选增强，Self-RAG 加 CRAG 做自评重试。这是针对我们 1000 份结构化内部 PDF 的最优组合，无需引入沉重的向量库或知识图谱。我的汇报到这里，谢谢大家，欢迎提问。</div>
+    <div class="notes">总结成一句话：我们的方案——Agent 驱动检索加按目录分类加按需加载原文，在 2026 年不是边缘尝试，而是 coding agent 领域已被验证的主流模式，Claude Code、Cursor、Devin 都是同款，在表格密集文档上实测还反超向量 RAG，有开源参考实现。具体组合是以它为主干，BM25 做精确召回，长上下文做按需加载，Self-RAG 加 CRAG 做自评重试。这是针对我们 1000 份结构化内部 PDF 的最优组合，无需引入沉重的向量库或知识图谱。我的汇报到这里，谢谢大家，欢迎提问。</div>
   </section>
 
   <!-- 20. Thanks -->

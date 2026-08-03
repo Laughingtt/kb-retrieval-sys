@@ -17,14 +17,14 @@
 
 | 维度  | 含义  |
 | --- | --- |
-| **检索底座（去哪找）** | 向量库 / 关键词索引 / 知识图谱 / 文件系统目录 / 多模态视觉索引 / 长上下文全量 |
+| **检索底座（去哪找）** | 向量库 / 关键词索引 / 知识图谱 / 文件系统目录 / 长上下文全量 |
 | **检索控制（怎么找）** | 静态流水线 / Self-RAG 反思 / CRAG 纠错 / Adaptive 路由 / Agent 自主规划 |
 
 你的需求"Agent 驱动检索"属于**检索控制 = Agent 自主规划**那一层；而"按目录分类 + 按需加载原文"属于**检索底座 = 文件系统目录**。两者是组合关系，下面分两块展开。
 
 ---
 
-## 二、检索底座方案全集（7 大类）
+## 二、检索底座方案全集（6 大类）
 
 ### 方案 1：向量检索（Vector / Dense Retrieval）— 传统 RAG
 
@@ -180,67 +180,113 @@ flowchart TD
 
 ---
 
-### 方案 5：多模态视觉检索（Multimodal / ColPali）— 你说的"知识库图片"
+### 方案 5：LLM Wiki Agent（Agentic / Vectorless RAG）— 你的主方案
 
-这是你提到的"知识库图片"方向的正式技术名，2026 年已成生产级。三条路线：
+> 方案名取自 Karpathy 的 "LLM Wiki" 方法论 + Agent 自主规划控制层。**框架无关**——L2 Agent 层不绑定任何具体 agent 框架，只以"Agent 自主规划 + 只读检索工具"的方式命名与实现。
 
-| 子路线 | 代表模型 | 原理  | 存储/成本 |
-| --- | --- | --- | --- |
-| **Caption-and-Index** | VLM 生成图说 → 文本 embedding | 最简单，图说入库 | 低   |
-| **统一视觉 embedding** | Cohere Embed 4 / voyage-multimodal-3.5 / SigLIP-2 | 文图同空间单向量 | 中，多数企业语料够用 |
-| **页面即图像 + 晚交互** | **ColPali / ColQwen2.5 / ColNomic** | PDF 整页渲染成图 → VLM 生成 patch 级多向量 → MaxSim 晚交互匹配，**跳过 OCR/切片** | 高（每页 ~1030 向量，10K 页约 1.3GB） |
+**原理**：不给 Agent 配向量库，而是给一组文件系统/文档导航工具（`list_categories` / `list_documents` / `read_section` / `grep_docs` / `grade_relevance`），Agent 自主决定调什么、何时调、调几次，按需把原文档加载进上下文。底座是一棵 LLM 增量构建并维护的持久化 wiki（markdown 页面树 + `index.md` + `log.md`），知识编译一次、持续复利，而非每次查询从原文临时重推。
+
+整体流程参考 llm_wiki 开源项目的 Ingest/Query/Lint 三大操作，结合本项目 L1（`l1_kb/`）的实际落地实现，拆成五段：**如何建索引、如何检索、如何更新、如何维护、用户问题来了的整体查询路径**。
 
 ```mermaid
 flowchart TD
-    subgraph 离线索引
-        M1[PDF 整页] --> M2[渲染为图像高 DPI]
-        M2 --> M3[VLM 视觉编码PaliGemma/Qwen-VL]
-        M3 --> M4[Patch 级多向量~1030 向量/页]
-        M4 --> M5[(多向量库Qdrant)]
+    subgraph 建索引Ingest
+        I1[原始 PDF/Word/Excel/MD] --> I2[M1 清洗 确定性无LLM]
+        I2 --> I3[md/ 清洗原文 + section 切片]
+        I3 --> I4[M2 两步 LLM step1分析 step2生成]
+        I4 --> I5[wiki/ 页面树 sources/entities/concepts/process]
+        I5 --> I6[确定性刷新 index.md + log.md]
     end
-    subgraph 在线查询
-        N1[用户问题] --> N2[查询 token embedding]
-        N2 --> N3[MaxSim 晚交互逐 patch 匹配]
-        M5 -.多向量.-> N3
-        N3 --> N4[页级排序+热力图]
-        N4 --> N5[VLM 读图生成答案]
-        N5 --> N6[回答]
+    subgraph 检索Retrieve
+        R1[grep_docs BM25+RRF+snippet] --> R2[片段召回 doc_id+section_id+snippet]
     end
+    subgraph 更新Update
+        U1[新增/更新文档] --> U2[content_hash 命中缓存跳过]
+        U2 --> U3[两步 LLM 或 fallback]
+        U3 --> U4[merge_page 合并 + 追加 log + 重建 index]
+    end
+    subgraph 维护Lint
+        L1[确定性脚本 孤儿页/断裂链接/缺字段] --> L2[周期 LLM 矛盾/过时/缺页]
+    end
+    subgraph 查询Query
+        Q1[用户问题] --> Q2[Agent 读 index.md 定位]
+        Q2 --> Q3[grep_docs 片段召回]
+        Q3 --> Q4[read_section 按行号加载全文段]
+        Q4 --> Q5{grade_relevance 自评}
+        Q5 -->|不达标 改写重检| Q3
+        Q5 -->|达标| Q6[整合多文档答案 + 引用]
+    end
+    I6 --> Q2
+    U4 --> I6
+    L2 --> I5
+
+    style I4 fill:#e1f5ff,stroke:#0288d1
+    style Q2 fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
+    style Q5 fill:#fff3e0,stroke:#f57c00
+    style Q6 fill:#e8f5e9,stroke:#388e3c
 ```
 
-**ColPali 的颠覆点**：彻底跳过 OCR 和切片，把 PDF 页当图像，VLM"像人一样看页面"，保留表格/图表/版式的空间关系——正好解决向量切片切断表格的痛点。ViDoRe V2 排行榜上 ColQwen2.5 居首。
+#### ① 如何建索引（Ingest：raw → md → wiki）
 
-**缺陷**：存储/延迟高（100K 页 200-500ms）；需多向量库（Qdrant）；自托管需 GPU。
+> 对应 llm_wiki 的 Ingest 操作 + Karpathy "三层编译 raw→wiki→schema"。本项目分 M1（确定性清洗）+ M2（两步 LLM 生成）两段。
 
-**适合你的场景**：数据表（字段说明常含表格截图）、产品介绍（含架构图/截图）。**建议作为 Agent 的可选工具**，对图表密集文档按需启用，而非全局底座。
+- **M1 清洗**（`ingest/cleaners/`，纯确定性、无 LLM）：PDF→pymupdf4llm（退化表格 pdfplumber 兜底）/ Word→pandoc gfm / Excel→pandas 每 sheet 转完整 pipe 表（宽表 >20 列按 F4 拆分）/ MD→Setext 转 ATX 规范化。产出 `md/{category}/{doc_id}.md`（`doc_id = slugify(路径)+"__"+sha256[:8]`）。`section_splitter` 按 H1/H2/H3 切出 Section（含 1-based `line_start/line_end`），长非表格段（>200 行）按空行二次切分。**这一步保留全文 + 结构，不切块、不向量化。**
+- **M2 两步 LLM 摄入**（`ingest/wiki/ingest.py` + `llm/ingest_prompts.py`，吸收 llm_wiki buildAnalysisPrompt/buildGenerationPrompt 原理，Python 重实现、非复制源码）：
+  - **step1 分析**（`chat_json`，`response_format=json_object`）：注入当前 `index.md`（判断实体是否已存在），返回 `{entities[{name,slug,role,exists}], concepts[{name,slug,definition,exists}], processes[{name,slug,code,owner,steps[],upstream,downstream,exists}], summary, keywords, type}`。`exists` 标志用于避免重复生成已有页面。
+  - **step2 生成**：按 `---FILE: wiki/{sources|entities|concepts|process}/{slug}.md---` 块输出页面（process 目录是单数），frontmatter = `{type, title, created, updated, tags, related, sources}`；`related` 即 Karpathy `[[wikilink]]` 的工程化版（用裸 slug）。必产 1 张 source 摘要页，可选若干 entity/concept/process 页。
+  - **fallback**（LLM 失败时）：`build_fallback_pages` 确定性生成单页 `wiki/sources/{slug}.md`（M1 sections 拼接的标题 + 首段），保证不丢文档。
+- **确定性导航与日志**（`index_log.py`，无需 LLM）：`wiki/index.md`（按 frontmatter `type` 分组、按 title 排序、`- [[slug|title]]` 链接）+ `wiki/log.md`（append-only `## [YYYY-MM-DD] ingest | {identity}`）+ `.cache/ingest-cache.json`（source_identity→hash）。
 
-> ⚠️ **本项目无图片**：用户的文档只有 PDF/Word/Excel/MD，**不含图片**。因此方案 5（ColPali/多模态视觉检索）在本项目**不采用**，本节仅作方案全集的完整性保留。无图片 = 无需 VLM/GPU/多向量库，设计与运维大幅简化（详见 [karpathy_wiki_selfbuild_research.md](karpathy_wiki_selfbuild_research.md) 3.2 节）。
+**原理**：不切块、不向量化，保留文档**全文 + 结构**；`wiki/index.md` 是 Karpathy `index.md` 的落地版。**这是"知识编译一次"的落点**——实体/概念/流程页面、frontmatter、关联一次生成，反复复用，而非每次查询从原文临时重推。
 
-#### 知识体系建立与维护
+#### ② 如何检索（Retrieve：BM25 + RRF + snippet）
 
-**建立流程与原理**：① PDF **整页渲染为高 DPI 图像** → ② **VLM 视觉编码**（PaliGemma/Qwen-VL）生成 patch 级多向量（每页 ~1030 向量）→ ③ 多向量写入多向量库（Qdrant）。**原理**：跳过 OCR 和文本切片，VLM"像人一样看页面"，把整页的视觉空间关系（表格/图表/版式）编码进 patch 多向量，查询时 MaxSim 晚交互逐 patch 匹配。建立需 **GPU**（VLM 推理）+ 多向量库。
+> 对应 llm_wiki 的 Query 检索段。本项目 P0 用纯关键词检索（向量库留接口未启用），契约对 L2 透明。
 
-**维护流程与原理**：新增/更新文档→整页重渲染+VLM 重编码+增量写入。**痛点**：① 存储高（10K 页约 1.3GB 多向量）；② VLM 模型升级需全量重编码（GPU 成本高）；③ 延迟高（100K 页 200-500ms/查询）；④ 自托管需常驻 GPU。**关键**：ColPali 只索引"页面图像"，**不抽取结构化知识**——它是检索器不是知识库，矛盾/关联仍靠外层；图片类内容更新（如截图改版）需重渲染重编码。
+- **BM25**（`bm25.py`，rank-bm25 `BM25Okapi`）：entries = `{slug, section_id, title, body_text}`，过滤零词频命中，返回 `SearchHit{doc_id=slug, section_id, title, snippet, score, source="bm25"}`。
+- **分词**（`tokenizer.py`）：`jieba.cut_for_search ∪ CJK 2-gram ∪ snake_case 复合词`，去重——兼顾中文分词、CJK 兜底、英文下划线术语。
+- **RRF 融合**（`base.py`，`RRFFuser.fuse(k=60, top_k=10)`，吸收 llm_wiki RRF k=60）：`score=Σ 1/(k+rank_i)`，同 `(doc_id, section_id)` 取最高分合并。P0 仅注册 BM25 → 单路直通（去重 + 截断），预留 `VectorRetriever` 接口，未来两路融合契约不变。
+- **snippet**（`snippet.py`，`make_snippet(md, line_start, line_end, max_chars=500)`）：按 1-based 行号切片，截断至 500 字——**片段而非全文**，低 token 成本快速定位候选章节。
 
-**维护成本**：高。GPU + 多向量库 + 重编码成本。本项目无图片故不适用。
+**原理**：BM25 精确命中字段名/流程编号/术语，可解释、可重建、零训练；snippet 控制单次召回 token。检索返回的是"去哪找"的定位信号（doc_id + section_id + snippet），真正取全文由 Agent 的 `read_section` 按需触发。
 
----
+#### ③ 如何更新（Update：增量摄入 + 缓存续灌 + 合并）
 
-### 方案 6：Agent 驱动检索 / 文件系统导航（Agentic / Vectorless RAG）— 你的主方案
+> 对应 llm_wiki 的增量 Ingest + Karpathy "一份资料可触及 10-15 个页面"。
 
-**原理**：不给 Agent 配向量库，而是给一组文件系统/文档导航工具（`list_categories` / `list_documents` / `read_document` / `read_section` / `grep_docs` / `grade_relevance`），Agent 自主决定调什么、何时调、调几次，按需把原文档加载进上下文。
+`ingest_source`（`ingest.py`）单份摄入流程：读 md → `content_hash` → `check_cache`（**命中跳过两步 LLM**）→ `_two_step_llm`（LLM 可用）OR `build_fallback_pages`（不可用）→ `normalize_wiki_path`（别名容错，如 processes→process）→ 逐页 `merge_page`（已存在则合并、补 sources/updated；routing 不一致 warn 跳过）→ 写盘 → `rebuild_index` + `append_log` → `save_cache`。
+
+- **增量**：新增文档只追加新页面，不动已有页面；`.cache/ingest-cache.json` 按内容 hash 跳过未变文档，**ghost-page 感知**——支持中断后续灌，不会重复生成。
+- **更新**：文档变更→hash 变→重灌该文档页面（删旧 source 页，重生成；merge_page 处理共享实体页的 sources 归并）。
+- **`IngestResult`** 暴露 `written_paths/skipped_cached/fallback/errors`，便于 CI 统计与告警。
+
+#### ④ 如何维护（Lint：确定性 + LLM 双层健康检查）
+
+> 对应 llm_wiki 的 Lint 操作 + Karpathy "LLM 包揽枯燥维护"。
+
+**lint 混合体系**（离线运维，非 Agent 工具，不违反"仅查询不执行"硬约束）：
+- **确定性脚本层**（便宜、可重复、CI 跑）：查孤儿页（无 source 指向）、断裂 wikilink（`related` 指向不存在的 slug）、frontmatter 缺字段、格式不规范。
+- **周期 LLM 层**（贵、人工触发）：跨文档查矛盾（同一字段/流程编号不一致）、过时声明、缺失概念页、缺失交叉引用、数据缺口。**矛盾检测**靠这一层——比向量/BM25 强，因 wiki 有关联结构（`related` + `sources` 可追溯）。
+
+**答案回填复利**（Karpathy compounding artifact）：Query 答完把好结论回填进 wiki，新知识持续累积，越用越准——Query 既是消费也是生产。
+
+**可重建性**：无模型漂移（不像 embedding 升级要全量重算）、无 GPU；坏了能从 `raw/` + 清洗脚本 100% 重建；`wiki/` 纯 markdown 可 git 版本控制、可 diff 审计。
+
+#### ⑤ 用户问题来了的整体查询路径（Query：Agent 自主规划多跳）
+
+> 对应 llm_wiki 的 Query 操作。Agent 是控制层（怎么找），wiki 文件系统是底座（去哪找），两者在此交汇。
 
 ```mermaid
 flowchart TD
-    U[用户问题] --> AG[pi Agent自主规划循环]
+    U[用户问题] --> AG[Agent 自主规划循环]
 
     AG -->|第1步 定位| T1[list_categories浏览目录分类]
     T1 --> AG
     AG -->|第2步 缩小| T2[list_documents列出候选文档]
     T2 --> AG
-    AG -->|第3步 精确召回| T3[grep_docsBM25 关键词]
+    AG -->|第3步 精确召回| T3[grep_docsBM25+RRF+snippet 片段]
     T3 --> AG
-    AG -->|第4步 按需加载| T4[read_section加载原文进上下文]
+    AG -->|第4步 按需加载| T4[read_section按 line_start/line_end 加载全文段]
     T4 --> AG
     AG -->|第5步 自评| T5{grade_relevance相关性达标?}
     T5 -->|否, 改写重检| AG
@@ -252,6 +298,13 @@ flowchart TD
     style R fill:#e8f5e9,stroke:#388e3c
 ```
 
+1. **定位**：Agent 先读 `wiki/index.md`（按 type 分组的页面目录），`list_categories`/`list_documents` 浏览分类与候选文档——靠 index 导航，不靠向量。
+2. **精确召回**：`grep_docs` 用 BM25+RRF+snippet 召回片段（doc_id + section_id + ≤500 字 snippet），低 token 定位候选章节。
+3. **按需加载**：`read_section` 按 `section.line_start/line_end` 加载该章节**完整原文**——表头与数据行、字段说明与示例**不再被切断**。片段定位 + 全文理解，两段式既省 token 又保完整性。
+4. **自评**：`grade_relevance`（CRAG 式评分）判断是否信息充分。
+5. **多跳重检**：不达标则改写查询/换文档/再 grep——把召回率从一次的概率事件变成**可迭代收敛的确定过程**（这正是"基于 Agent 非工作流"硬约束的技术内核）。
+6. **整合**：信息充分后整合多文档答案，带来源引用返回。
+
 **2026 年现状（核心结论）**：这是当前明确主流趋势，多个名字指同一模式——agent-as-retriever / agentic search / vectorless RAG / just-in-time context loading / tool-use retrieval。Claude Code、Cursor、Devin、Cline、Sourcegraph Amp 全部采用此模式，**都不把语料塞进向量库**。
 
 **学术/实测背书**：
@@ -261,33 +314,12 @@ flowchart TD
 - Vercel：加文件系统工具后砍掉 80% 专用工具，准确率反升。
 - "The Filesystem Is the Database"（Mintlify/Turso/Box/ByteDance 共识）：文件系统是最古老最被验证的接口，agent 用它最自然。
 
-**优点**：不切片、保留全文上下文、可解释、可多跳回溯、零向量库基础设施。
+**优点**：不切片、保留全文上下文、可解释、可多跳回溯、零向量库基础设施、知识结构化沉淀可复利。
 **缺陷**：依赖 LLM 规划能力；token 消耗随加载文档增大（需配合长上下文模型 + 懒加载）；超大规模语料（GB 级）不如向量库。
 
 **适合**：**正是你的场景**——1000 份结构化内部文档、按目录分类、多跳自评。
 
-#### 知识体系建立与维护（本项目选型，最贴合 Karpathy 思想）
-
-> **结合现有代码说明**：以下为 L1 层已落地的实现（`l1_kb/` 包），与设计文档早期设想的 `index.json`/`ingest_log.jsonl`/FastAPI 服务不同——**实际产物是 `wiki/` markdown 页面树 + 确定性 `wiki/index.md` + `wiki/log.md` + BM25/RRF/snippet 检索，经 `kb search` CLI 验证**；REST 服务与剩余工具端点为 M3 待建。
-
-**建立流程与原理**（本项目 L1 离线 pipeline，详见 [karpathy_wiki_selfbuild_research.md](karpathy_wiki_selfbuild_research.md) 3.4）：
-
-- **M1 清洗**（`ingest/cleaners/`，纯确定性无 LLM）：PDF→pymupdf4llm（退化表格 pdfplumber 兜底）/ Word→pandoc gfm / Excel→pandas 每 sheet 转完整 pipe 表（宽表 >20 列按 F4 拆分）/ MD→Setext 转 ATX 规范化。产出 `md/{category}/{doc_id}.md`（`doc_id = slugify(路径)+"__"+sha256[:8]`）。`section_splitter` 按 H1/H2/H3 切出 Section（含 1-based `line_start/line_end`），长非表格段（>200 行）按空行二次切分。
-- **M2 两步 LLM 摄入**（`ingest/wiki/ingest.py` + `llm/ingest_prompts.py`）：
-  - **step1 分析**（`chat_json`，`response_format=json_object`）：返回 `{entities[{name,slug,role,exists}], concepts[{name,slug,definition,exists}], processes[{name,slug,code,owner,steps[],upstream,downstream,exists}], summary, keywords, type}`。
-  - **step2 生成**：按 `---FILE: wiki/{dir}/{slug}.md---` 块输出页面，frontmatter = `{type, title, created, updated, tags, related, sources}`；`related` 即 Karpathy `[[wikilink]]` 的工程化版。
-  - **fallback**（LLM 失败时）：确定性生成单页 `wiki/sources/{slug}.md`（章节标题 + 首段），保证不丢文档。
-- **确定性导航与日志**：`wiki/index.md`（`index_log.py`，按 frontmatter `type` 分组、按 title 排序、`- [[slug|title]]` 链接）+ `wiki/log.md`（append-only `## [YYYY-MM-DD] ingest | {identity}`）+ `.cache/ingest-cache.json`（source_identity→hash，ghost-page 感知，支持增量续灌）。
-
-**原理**：不切块、不向量化，保留文档**全文 + 结构**；`wiki/index.md` 是 Karpathy `index.md` 的落地版——Agent 先读 index 定位再 `read_section` 按章节行号加载原文段（靠 `section.line_start/line_end` 避免全文进上下文）。**这是"知识编译一次"的落点**：实体/概念/流程页面、frontmatter、关联一次生成，反复复用。
-
-**检索实现**（`retrieval/`，CLI 可达，M3 包成 REST）：
-- **BM25**（`bm25.py`，rank-bm25 `BM25Okapi`）：entries = `{slug, section_id, title, body_text}`，过滤零词频命中，返回 `SearchHit{doc_id=slug, section_id, title, snippet, score, source="bm25"}`。
-- **分词**（`tokenizer.py`）：`jieba.cut_for_search ∪ CJK 2-gram ∪ snake_case 复合词`，去重。
-- **RRF 融合**（`base.py`，`RRFFuser.fuse(k=60, top_k=10)`）：`score=Σ 1/(k+rank_i)`，同 `(doc_id, section_id)` 取 max 合并。P0 仅注册 BM25 → 单路直通，预留 `VectorRetriever` 接口。
-- **snippet**（`snippet.py`，`make_snippet(md, line_start, line_end, max_chars=500)`）：按 1-based 行号切片，截断至 500 字。
-
-**5 个 L2 工具的真实支撑状态**：
+#### 5 个 L2 工具的真实支撑状态
 
 | 工具 | L1 支撑 | 状态 |
 | --- | --- | --- |
@@ -297,13 +329,13 @@ flowchart TD
 | `list_documents` | `_collect_pages`（`index_log.py`） | 🟡 待 M3 端点化 |
 | `grade_relevance` | — | L2 自评，非 L1 职责 |
 
-**维护流程与原理**：新增文档→M1 清洗 + M2 两步→**追加 wiki 页面 + append log.md + 刷新 index.md**（增量，不动已有，ghost-page 感知续灌）。更新文档→删旧页面，重灌新页面。**知识复利落点**：① frontmatter `related` 字段 = Karpathy `[[wikilink]]`，摄入时 LLM 自动建立页面间关联；② **lint 混合体系**（离线运维，非 Agent 工具）：确定性脚本查孤儿页/断裂 wikilink/frontmatter 缺失/格式（便宜可重复，CI 跑），周期 LLM 查矛盾/过时/缺概念页（贵，人工触发）。**矛盾检测**靠 lint 的周期 LLM 检查跨文档同一字段/流程编号不一致——比向量/BM25 强，因 wiki 有关联结构。**关键差异**：方案1-5 是"检索器"，知识不沉淀；方案6 的 wiki 页面树 + index.md + `related` + log.md 让知识**结构化沉淀、可积累**，正是 Karpathy "compounding artifact" 的工程实现。
+> **结合现有代码说明**：以上为 L1 层已落地的实现（`l1_kb/` 包），与设计文档早期设想的 `index.json`/`ingest_log.jsonl`/FastAPI 服务不同——**实际产物是 `wiki/` markdown 页面树 + 确定性 `wiki/index.md` + `wiki/log.md` + BM25/RRF/snippet 检索，经 `kb search` CLI 验证**；REST 服务与剩余工具端点为 M3 待建。
 
 **维护成本**：低到中。无向量库/GPU/图库；主要是 M2 两步 ingest 的 token + lint 脚本。wiki/ 纯 markdown 可重建、可 git 版本化。
 
 ---
 
-### 方案 7（补充）：长上下文全量注入（Long-Context / "RAG 已死"派）
+### 方案 6（补充）：长上下文全量注入（Long-Context / "RAG 已死"派）
 
 **原理**：模型上下文已达 1M-2M token（Claude Opus 4.6 / Gemini 3.1 Pro），直接把相关文档全量塞进 prompt，不做检索。
 
@@ -323,15 +355,15 @@ flowchart LR
 **优点**：零检索基础设施、零切片损失、全文上下文完整。
 **缺陷**：成本高（每查询满窗 token）；1000 份文档不可能全塞；"lost in the middle"注意力衰减；无源追溯/审计。
 
-**定位**：不是独立方案，而是**方案 6 的执行手段**——Agent 按需加载的文档进长上下文窗口供 LLM 推理。两者天然组合。
+**定位**：不是独立方案，而是**方案 5 的执行手段**——Agent 按需加载的文档进长上下文窗口供 LLM 推理。两者天然组合。
 
 #### 知识体系建立与维护
 
 **建立流程与原理**：① 文档清洗为 markdown（保持表格/结构）→ ② 按目录/元数据分类组织（如 `data_product/`、`process/`、`data_table/`）→ ③ **不建任何索引**——既不切块也不向量化，文档原文按目录躺在文件系统。**原理**：依赖现代 LLM 的超长上下文窗口（1M-2M token）一次性吞下相关文档全文，让模型"亲眼读全文"做推理，零切片损失、零检索基础设施。建立是**最轻的**：清洗 + 分类即可。
 
-**维护流程与原理**：新增/更新文档→清洗后丢进对应目录，**无索引需更新**（这是最大优势——无"索引漂移/重算"问题）。查询时由 Agent（方案6）或人工按目录筛选相关文档→拼装进长上下文。**痛点**：① **筛选是难点**——1000 份不可能全塞，必须靠目录/元数据/Agent 先筛出相关的少数几份（所以它必须配合方案6，不能独立）；② **成本随加载量线性增长**——每次查询满窗 token，费用高；③ "lost in the middle"——超长上下文中间部分注意力衰减，关键信息放中段易漏；④ **无源追溯/审计结构**——全文塞进去，哪句来自哪份文档需模型自己标注引用（不如 wiki/ 页面的章节锚点精确）；⑤ 知识**不沉淀**——和方案1-5 一样是检索/注入器，不是知识库，矛盾/关联靠模型当场判断，不积累。
+**维护流程与原理**：新增/更新文档→清洗后丢进对应目录，**无索引需更新**（这是最大优势——无"索引漂移/重算"问题）。查询时由 Agent（方案 5）或人工按目录筛选相关文档→拼装进长上下文。**痛点**：① **筛选是难点**——1000 份不可能全塞，必须靠目录/元数据/Agent 先筛出相关的少数几份（所以它必须配合方案 5，不能独立）；② **成本随加载量线性增长**——每次查询满窗 token，费用高；③ "lost in the middle"——超长上下文中间部分注意力衰减，关键信息放中段易漏；④ **无源追溯/审计结构**——全文塞进去，哪句来自哪份文档需模型自己标注引用（不如 wiki/ 页面的章节锚点精确）；⑤ 知识**不沉淀**——和方案1-4 一样是检索/注入器，不是知识库，矛盾/关联靠模型当场判断，不积累。
 
-**维护成本**：建立极低（无索引）；但**运行成本高**（token），且无知识沉淀。适合作为方案6的执行手段，而非独立底座。
+**维护成本**：建立极低（无索引）；但**运行成本高**（token），且无知识沉淀。适合作为方案 5 的执行手段，而非独立底座。
 
 ---
 
@@ -424,7 +456,7 @@ flowchart TD
     SE -->|达标| A[最终回答 / 或拒绝]
 ```
 
-你的"多跳 + 自我判断重试"需求 = **Agentic RAG 主控 + 内嵌 CRAG 式相关性评分 + Self-RAG 式答案自评**。这在 pi Agent 里通过工具（`grade_relevance`）+ 系统提示（自评停止条件）即可实现，无需额外框架。
+你的"多跳 + 自我判断重试"需求 = **Agentic RAG 主控 + 内嵌 CRAG 式相关性评分 + Self-RAG 式答案自评**。这在 Agent 里通过工具（`grade_relevance`）+ 系统提示（自评停止条件）即可实现，无需额外框架。
 
 ### 3.x Agentic RAG 深入：片段检索 + 单篇全读 + 多次查询
 
@@ -446,7 +478,7 @@ Agentic RAG 作为我们的控制层主选，需要单独展开它相比传统�
 
 **本质区别**：单次检索的召回上限就是答案上限；Agent 多跳让"召回率"从一次的概率事件变成**可迭代收敛的确定过程**——这正是"基于 Agent 非工作流"硬约束（CLAUDE.md 第四节）的技术内核。工作流 RAG 召回不全只能答错，Agentic RAG 召回不全还能自我判断、改写重检直至取全。
 
-**与方案 6 的关系**：Agentic RAG 是**控制层**（怎么找），方案 6 文件系统导航是**底座层**（去哪找），两者组合 = "文件系统目录底座 × Agent 自主规划控制"（见 §1 关键认知）。grep_docs/read_section 这两个工具同时是方案 6 的工具集和 Agentic RAG 的检索原语，两层在此交汇。
+**与方案 5 的关系**：Agentic RAG 是**控制层**（怎么找），方案 5 LLM Wiki Agent 文件系统导航是**底座层**（去哪找），两者组合 = "文件系统目录底座 × Agent 自主规划控制"（见 §1 关键认知）。grep_docs/read_section 这两个工具同时是方案 5 的工具集和 Agentic RAG 的检索原语，两层在此交汇。
 
 ---
 
@@ -537,7 +569,6 @@ flowchart TD
 **llm_wiki 优势**：
 
 - **Karpathy 原教旨**：三层架构 + Ingest/Query/Lint 完整闭环，markdown 文件即知识库，可读、可 git 版本控制、可 Obsidian 浏览。
-- **多模态强**：自动提取 PDF 内嵌图片、视觉模型生成事实性描述、图文分区搜索——直接命中你"数据表/产品介绍含图表"的痛点。
 - **index.md 导航**：中等规模无需向量库，与你"按目录分类"直觉一致。
 - **MCP + Agent Skill 双接入**：既可作 Claude Code 的 MCP 工具，又有本地 skills。
 
@@ -602,7 +633,7 @@ flowchart TD
 
 **结论先行**：两个都不建议"原样拿来用"，但**各取所长**最划算。
 
-**路线 A（推荐）—— 以你自建 pi Agent 为主干，借鉴两者理念，不绑定任一仓库**：
+**路线 A（推荐）—— 以自建 Agent 为主干，借鉴两者理念，不绑定任一仓库**：
 
 | 借鉴点 | 来源  | 落到你的系统 |
 | --- | --- | --- |
@@ -610,13 +641,12 @@ flowchart TD
 | `index.md` 导航 + 按需加载 | Karpathy / llm_wiki | 你的 `list_categories`/`list_documents`/`read_section` 工具就是这套；1000 份规模 index 够用 |
 | Gap Analysis + 答案带引用 | gbrain | `grade_relevance` 工具 + 系统提示要求标注"未覆盖什么" |
 | 权限隔离思路 | gbrain | 按目录/部门做 source 切分（data_product/process/data_table 各一源），Agent 查询前按用户身份限定可访问源 |
-| 多模态图片摄入 | llm_wiki | 对数据表/产品介绍 PDF，提取内嵌图→视觉模型生成描述→入库（比 ColPali 轻量） |
 
 **路线 B（次选）—— 直接基于 gbrain 改造**：若你接受 Postgres+pgvector 重基础设施，且需要多部门权限隔离，gbrain 是更省事的起点（MIT 许可、生产级、company-brain 教程现成）。需做：① 自定义本体（接口/字段/流程而非人/公司）；② embedding 换自托管模型；③ PDF→MD 摄入 pipeline 接你的 1000 份语料；④ 砍掉用不上的 CRM 类 skills。
 
 **路线 C（不推荐）—— 直接用 llm_wiki**：GPL v3 + 桌面应用形态 + 单用户，三点都和你"企业自托管多业务部门"冲突。除非你的场景就是少数分析师的个人研究库，否则法务和部署都会卡。
 
-**一句话**：Karpathy 的"持久化编译 wiki + LLM 维护"思想值得吸收，但具体实现上——**llm_wiki 太个人、许可证太重；gbrain 太重、定位偏 CRM**。你自建的 pi Agent + 文件系统导航主干，恰好是两者之间最合身的中间路线（参考第五节推荐架构）。
+**一句话**：Karpathy 的"持久化编译 wiki + LLM 维护"思想值得吸收，但具体实现上——**llm_wiki 太个人、许可证太重；gbrain 太重、定位偏 CRM**。你自建的 Agent + 文件系统导航主干（LLM Wiki Agent），恰好是两者之间最合身的中间路线（参考第五节推荐架构）。
 
 ---
 
@@ -630,9 +660,8 @@ flowchart TD
 | 关键词 BM25 | 倒排索引 | ✅ 精确术语 | 弱   | 低   | 低   | ✅   | ⭐⭐⭐ |
 | 混合+Rerank | 双索引 | 🟡 仍切片 | 中高  | 中高  | 中高  | ✅   | ⭐⭐⭐ |
 | GraphRAG | 知识图谱 | 🟡  | ✅ 最强 | 高   | 极高（数周建模） | ✅   | ⭐   |
-| 多模态 ColPali | 视觉多向量 | ✅ 保留版式 | 中   | 高（GPU+多向量库） | 高   | ✅   | ⭐⭐⭐（图表文档可选） |
-| **Agent 文件导航** | **文件系统目录** | **✅ 全文不切片** | **✅ 可回溯多跳** | **低** | **中** | **✅ 原生** | **⭐⭐⭐⭐⭐** |
-| 长上下文全量 | 无索引 | ✅   | 中   | 高（token） | 低   | —（执行手段） | ⭐⭐⭐（配合方案6） |
+| **LLM Wiki Agent** | **文件系统目录** | **✅ 全文不切片** | **✅ 可回溯多跳** | **低** | **中** | **✅ 原生** | **⭐⭐⭐⭐⭐** |
+| 长上下文全量 | 无索引 | ✅   | 中   | 高（token） | 低   | —（执行手段） | ⭐⭐⭐（配合方案5） |
 
 **控制层叠加**（均 Agent 可调用，自托管友好）：
 
@@ -642,17 +671,17 @@ flowchart TD
 | Self-RAG | 答案自评 | ✅ 系统提示内嵌 |
 | CRAG | 上下文评分+重检索 | ✅ `grade_relevance` 工具 |
 | Adaptive RAG | 查询路由 | ✅ Agent 分类即路由 |
-| **Agentic RAG** | **自主规划** | **✅ 主控（pi Agent）** |
+| **Agentic RAG** | **自主规划** | **✅ 主控（Agent）** |
 
 ---
 
 ## 六、推荐架构（融合方案，非单选）
 
-基于对比，你的最优解**不是单选某方案，而是以 Agent 文件导航为主干、按需挂载其他底座作为工具**：
+基于对比，你的最优解**不是单选某方案，而是以 LLM Wiki Agent 为主干、按需挂载其他底座作为工具**：
 
 ```mermaid
 flowchart TD
-    U[用户问题] --> AG[pi AgentAgentic RAG 主控自主规划 + 多跳 + 自评停止]
+    U[用户问题] --> AG[AgentAgentic RAG 主控自主规划 + 多跳 + 自评停止]
 
     AG --> T1[list_categories目录导航]
     AG --> T2[list_documents文档清单]
@@ -667,28 +696,23 @@ flowchart TD
     T5 -->|不达标| AG
     T5 -->|达标| ANS[整合多文档答案]
 
-    AG -.图表密集文档可选.-> CP[ColPali 视觉检索数据表截图/架构图]
-    CP --> AG
-
     ANS --> R[最终回答 + 来源引用]
 
     style AG fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
     style R fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style CP fill:#fce4ec,stroke:#c2185b,stroke-dasharray: 5 5
 ```
 
 **分层落地**：
 
-- **P0（主干）**：Agent 文件导航 + `wiki/` 页面树 + `wiki/index.md` + BM25 grep + read_section + grade_relevance。覆盖 80% 查询。（L1 侧 M1 清洗 + M2 两步 LLM 摄入 + BM25/RRF/snippet 检索已落地，经 `kb search` CLI 验证。）
+- **P0（主干）**：LLM Wiki Agent + `wiki/` 页面树 + `wiki/index.md` + BM25 grep + read_section + grade_relevance。覆盖 80% 查询。（L1 侧 M1 清洗 + M2 两步 LLM 摄入 + BM25/RRF/snippet 检索已落地，经 `kb search` CLI 验证。）
 - **P1（质量）**：系统提示内嵌 Self-RAG 自评 + CRAG 重检循环，实现"多跳自我判断重试"。
-- **P2（增强）**：对图表密集的数据表/产品介绍文档，挂载 ColPali 视觉检索作为 Agent 可选工具。
-- **P3（远期可选）**：若未来多跳关系查询增多且语料增长，再评估混合检索或 GraphRAG——1000 份规模当前不需要。
+- **P2（远期可选）**：若未来多跳关系查询增多且语料增长，再评估混合检索或 GraphRAG——1000 份规模当前不需要。
 
 ---
 
 ## 七、一句话结论
 
-你的"Agent 驱动检索 + 按目录分类 + 按需加载原文"方案，在 2026 年**不是边缘尝试，而是 coding agent 领域已被验证的主流模式**（Claude Code/Cursor/Devin 同款），有 `fs-explorer` 等开源参考实现，且在表格密集文档上实测反超向量 RAG。**以它为主干，BM25 做精确召回，ColPali 做图表可选增强，Self-RAG+CRAG 做自评重试**——这是针对你 1000 份结构化内部 PDF 的最优组合，无需引入沉重的向量库或知识图谱。
+你的"Agent 驱动检索 + 按目录分类 + 按需加载原文"方案，在 2026 年**不是边缘尝试，而是 coding agent 领域已被验证的主流模式**（Claude Code/Cursor/Devin 同款），有 `fs-explorer` 等开源参考实现，且在表格密集文档上实测反超向量 RAG。**以 LLM Wiki Agent 为主干，BM25 做精确召回，Self-RAG+CRAG 做自评重试**——这是针对你 1000 份结构化内部 PDF 的最优组合，无需引入沉重的向量库或知识图谱。
 
 ---
 
@@ -699,8 +723,6 @@ flowchart TD
 - *The Filesystem Is the Database*（2026.04，Mintlify/Turso/Box/ByteDance）
 - *AI Agents Don't Need Vector Search Anymore*（2026，agent-as-retriever 趋势综述）
 - ValueStreamAI — *AI Knowledge Management 2026*（GraphRAG 67%→81%→94% 基准）
-- BigDataBoutique — *Multimodal RAG in 2026*（ColPali/ColQwen2.5 三路线对比）
-- arXiv 2604.10167 — *Visual Late Chunking*（ColPali 多向量 SOTA）
 - Atlan — *12 Advanced RAG Techniques*（Self-RAG/CRAG/Adaptive RAG 机制）
 - DEV — *Self-RAG vs Adaptive RAG vs Corrective RAG*（控制层分层叠加）
 - AkitaOnRails — *Is RAG Dead? Long Context, Grep*（长上下文 vs RAG 取舍）
