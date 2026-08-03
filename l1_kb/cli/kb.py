@@ -27,12 +27,19 @@ from ..ingest.section_splitter import split as split_sections
 from ..retrieval.bm25 import BM25Retriever
 from ..retrieval.base import RRFFuser
 from ..retrieval.snippet import make_snippet
+from ..ingest.incremental import ingest_flow, change_detect, delete as incr_delete
+from ..ingest.incremental import hash_store, ingest_log
+from ..ingest.lint import checker as lint_checker, report as lint_report
+from ..ingest.doc_id import make_doc_id
 from .. import config
 
 DEFAULT_RAW = "l1_kb/knowledge_base/raw"
 DEFAULT_MD = "l1_kb/knowledge_base/md"
 DEFAULT_WIKI = "l1_kb/knowledge_base/wiki"
 DEFAULT_CACHE = "l1_kb/knowledge_base/.cache/ingest-cache.json"
+DEFAULT_HASH = "l1_kb/knowledge_base/.cache/hash.json"
+DEFAULT_LOG = "l1_kb/knowledge_base/ingest_log.jsonl"
+DEFAULT_LINT_REPORT = "lint_report.json"
 
 
 @click.group()
@@ -145,30 +152,41 @@ def _wiki_entries(wiki_root: Path) -> list[dict]:
 @click.option("--raw-root", "raw_root", type=click.Path(path_type=Path), default=DEFAULT_RAW)
 @click.option("--wiki-root", "wiki_root", type=click.Path(path_type=Path), default=DEFAULT_WIKI)
 @click.option("--cache-path", "cache_path", type=click.Path(path_type=Path), default=DEFAULT_CACHE)
+@click.option("--hash-path", "hash_path", type=click.Path(path_type=Path), default=DEFAULT_HASH)
+@click.option("--log-path", "log_path", type=click.Path(path_type=Path), default=DEFAULT_LOG)
 @click.option("--no-llm", is_flag=True, help="禁用 LLM，强制 fallback。")
-def ingest(path: Path, md_root: Path, raw_root: Path, wiki_root: Path, cache_path: Path, no_llm: bool) -> None:
-    """摄入 md 文件（单文件或目录）→ wiki 页 + index/log。
-
-    无 LLM key 或 --no-llm 时走确定性 fallback（仅产 source 摘要页）。
-    """
-    wiki_root = wiki_root.resolve()
-    cache_path = cache_path.resolve()
-    raw_root = raw_root.resolve()
+def ingest(path, md_root, raw_root, wiki_root, cache_path, hash_path, log_path, no_llm):
+    """摄入 PATH。PATH 在 raw_root 下 → raw 三态增量；在 md_root 下 → M2 直摄入。"""
+    raw_root = raw_root.resolve(); md_root = md_root.resolve()
+    wiki_root = wiki_root.resolve(); cache_path = cache_path.resolve()
+    hash_path = hash_path.resolve(); log_path = log_path.resolve()
     path = path.resolve()
-
+    if raw_root in path.parents or path == raw_root:
+        client = None if no_llm else make_client_from_config()
+        if client is None:
+            click.secho("[info] LLM 不可用或 --no-llm，走确定性 fallback", fg="yellow")
+        summary = ingest_flow.run_incremental(
+            raw_root=raw_root, md_root=md_root, wiki_root=wiki_root,
+            cache_path=cache_path, hash_path=hash_path, log_path=log_path,
+            client=client, today=config.today(),
+        )
+        for d in summary.details:
+            click.echo(d)
+        click.echo(f"\n完成: 新增 {summary.added}, 修改 {summary.modified}, "
+                  f"删除 {summary.deleted}, 跳过 {summary.skipped}, 失败 {summary.failed} "
+                  f"(共 {summary.total} 文件)")
+        if summary.failed:
+            sys.exit(1)
+        return
+    # —— M2 向后兼容：md 直摄入 ——
     files = [path] if path.is_file() else sorted(p for p in path.rglob("*.md") if p.is_file())
     if not files:
-        click.echo(f"未找到 md 文件: {path}")
-        return
-
+        click.echo(f"未找到 md 文件: {path}"); return
     client = None if no_llm else make_client_from_config()
     if client is None:
         click.secho("[info] LLM 不可用或 --no-llm，走确定性 fallback", fg="yellow")
-
     ok = skipped = failed = 0
     for f in files:
-        # source_identity：相对 raw_root 的路径（含扩展名）；md 文件名是 {slug}__{hash}.md
-        # 简化：用 md 相对 md_root 的路径作为 identity 近似（M1 doc_id 已稳定）
         try:
             rel = f.relative_to(md_root) if md_root in f.parents else f
         except ValueError:
@@ -179,16 +197,12 @@ def ingest(path: Path, md_root: Path, raw_root: Path, wiki_root: Path, cache_pat
         try:
             res = ingest_source(f, identity, wiki_root=wiki_root, cache_path=cache_path, client=client, today=today, index_md=index_md)
         except Exception as e:
-            click.secho(f"[ERR] {f.name}: {e}", fg="red", err=True)
-            failed += 1
-            continue
+            click.secho(f"[ERR] {f.name}: {e}", fg="red", err=True); failed += 1; continue
         if res.skipped_cached:
-            click.secho(f"[SKIP-CACHED] {f.name}", fg="cyan")
-            skipped += 1
+            click.secho(f"[SKIP-CACHED] {f.name}", fg="cyan"); skipped += 1
         else:
             tag = "[FALLBACK]" if res.fallback else "[LLM]"
-            click.secho(f"{tag} {f.name} → 写入 {len(res.written_paths)} 页", fg="green")
-            ok += 1
+            click.secho(f"{tag} {f.name} → 写入 {len(res.written_paths)} 页", fg="green"); ok += 1
     click.echo(f"\n完成: 摄入 {ok}, 缓存跳过 {skipped}, 失败 {failed} (共 {len(files)} 文件)")
 
 
@@ -199,6 +213,31 @@ def index_cmd(wiki_root: Path) -> None:
     wiki_root = wiki_root.resolve()
     rebuild_index(wiki_root, config.today())
     click.secho(f"[OK] 已重建 {wiki_root / 'index.md'}", fg="green")
+
+
+@cli.command()
+@click.option("--wiki-root", "wiki_root", type=click.Path(path_type=Path), default=DEFAULT_WIKI)
+@click.option("--raw-root", "raw_root", type=click.Path(path_type=Path), default=DEFAULT_RAW)
+@click.option("--md-root", "md_root", type=click.Path(path_type=Path), default=DEFAULT_MD)
+@click.option("--cache-path", "cache_path", type=click.Path(path_type=Path), default=DEFAULT_CACHE)
+@click.option("--hash-path", "hash_path", type=click.Path(path_type=Path), default=DEFAULT_HASH)
+@click.option("--log-path", "log_path", type=click.Path(path_type=Path), default=DEFAULT_LOG)
+@click.option("--out", "out_path", type=click.Path(path_type=Path), default=DEFAULT_LINT_REPORT)
+def lint(wiki_root, raw_root, md_root, cache_path, hash_path, log_path, out_path):
+    """五项确定性自检 → lint_report.json + 终端摘要；error→退码 1。"""
+    today = config.today()
+    report = lint_checker.run_lint(
+        wiki_root=wiki_root.resolve(), hash_path=hash_path.resolve(),
+        ingest_log_path=log_path.resolve(), cache_path=cache_path.resolve(),
+        md_root=md_root.resolve(), today=today,
+    )
+    lint_report.write_report(report, out_path.resolve())
+    click.echo(lint_report.format_summary(report))
+    click.secho(f"[OK] 报告已写: {out_path}", fg="green")
+    ingest_log.append_lint(log_path.resolve(), today=today,
+                            issues=len(report.issues), errors=report.errors,
+                            warnings=report.warnings, info=report.info)
+    sys.exit(lint_report.exit_code(report))
 
 
 @cli.command()
@@ -226,6 +265,36 @@ def search(query: str, wiki_root: Path, top_k: int) -> None:
         for line in snippet.splitlines()[:3]:
             click.echo(f"     {line}")
         click.echo(f"     [{h.source}]")
+
+
+@cli.command()
+@click.option("--raw-root", "raw_root", type=click.Path(path_type=Path), default=DEFAULT_RAW)
+@click.option("--md-root", "md_root", type=click.Path(path_type=Path), default=DEFAULT_MD)
+@click.option("--wiki-root", "wiki_root", type=click.Path(path_type=Path), default=DEFAULT_WIKI)
+@click.option("--cache-path", "cache_path", type=click.Path(path_type=Path), default=DEFAULT_CACHE)
+@click.option("--hash-path", "hash_path", type=click.Path(path_type=Path), default=DEFAULT_HASH)
+@click.option("--log-path", "log_path", type=click.Path(path_type=Path), default=DEFAULT_LOG)
+@click.option("--yes", is_flag=True, help="确认清空生成物（否则仅 dry-run）。")
+def rebuild(raw_root, md_root, wiki_root, cache_path, hash_path, log_path, yes):
+    """清生成物从 raw 全量重建（需 --yes）。"""
+    raw_root = raw_root.resolve(); md_root = md_root.resolve()
+    wiki_root = wiki_root.resolve(); cache_path = cache_path.resolve()
+    hash_path = hash_path.resolve(); log_path = log_path.resolve()
+    if not yes:
+        click.echo("[dry-run] 将清空: md/ wiki/ ingest-cache.json hash.json ingest_log.jsonl；raw/ 不动。")
+        click.echo("        加 --yes 执行全量重建。")
+        return
+    client = make_client_from_config()
+    if client is None:
+        click.secho("[info] LLM 不可用，走确定性 fallback", fg="yellow")
+    summary = ingest_flow.rebuild_all(
+        raw_root=raw_root, md_root=md_root, wiki_root=wiki_root,
+        cache_path=cache_path, hash_path=hash_path, log_path=log_path,
+        client=client, today=config.today(),
+    )
+    for d in summary.details:
+        click.echo(d)
+    click.secho(f"[OK] 全量重建完成: {summary.added} 摄入", fg="green")
 
 
 if __name__ == "__main__":
