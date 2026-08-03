@@ -7,17 +7,20 @@ upsert_hash + append_log（hash.json 最后落盘=提交）。理解原理后用
 
 from __future__ import annotations
 
+import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..clean import clean_one
+from ..cleaners.dispatcher import SUPPORTED_EXTS
 from ..wiki.ingest import ingest_source, read_index_md
 from .change_detect import ChangeItem, ChangeSet, detect_changes
 from .delete import find_md_for_slug, purge_source
 from .hash_store import upsert_hash
-from .ingest_log import append_delete, append_ingest
+from .ingest_log import append_delete, append_ingest, append_rebuild
 
-__all__ = ["FlowSummary", "run_incremental"]
+__all__ = ["FlowSummary", "run_incremental", "rebuild_all"]
 
 
 def _warn(msg: str) -> None:
@@ -115,3 +118,39 @@ def run_incremental(*, raw_root: Path, md_root: Path, wiki_root: Path, cache_pat
             summ.details.append(f"[ERR] {d.slug}: {e}")
 
     return summ
+
+
+def _clear_generated(md_root, wiki_root, cache_path, hash_path, log_path):
+    if md_root.exists(): shutil.rmtree(md_root)
+    md_root.mkdir(parents=True, exist_ok=True)
+    if wiki_root.exists(): shutil.rmtree(wiki_root)
+    wiki_root.mkdir(parents=True, exist_ok=True)
+    for p in (cache_path, hash_path, log_path):
+        if p.exists(): p.unlink()
+
+
+def rebuild_all(*, raw_root: Path, md_root: Path, wiki_root: Path, cache_path: Path,
+                hash_path: Path, log_path: Path, client, today: str) -> FlowSummary:
+    """清生成物从 raw 全量重建。幂等（raw 是真相源）。"""
+    _clear_generated(md_root, wiki_root, cache_path, hash_path, log_path)
+    # 1) 全量 clean
+    raw_files = sorted(p for p in raw_root.rglob("*")
+                       if p.is_file() and p.suffix.lower() in SUPPORTED_EXTS)
+    details: list[str] = []
+    ok = 0; failed = 0
+    for f in raw_files:
+        try:
+            clean_one(raw_root, f, md_root, dry_run=False)
+            ok += 1
+        except Exception as e:  # noqa: BLE001
+            failed += 1; details.append(f"[ERR] clean {f.name}: {e}")
+    # 2) 全量 ingest（cache 已清→全重跑）
+    summ = run_incremental(raw_root=raw_root, md_root=md_root, wiki_root=wiki_root,
+                           cache_path=cache_path, hash_path=hash_path, log_path=log_path,
+                           client=client, today=today)
+    # 3) 全量 hash.json 已在 run_incremental 内按需 upsert；这里补一行 rebuild 标记
+    append_rebuild(log_path, today=today)
+    details.append(f"[REBUILD] clean {ok} / ingest {summ.added} / failed {failed + summ.failed}")
+    return FlowSummary(added=summ.added, modified=0, deleted=0, skipped=summ.skipped,
+                       failed=failed + summ.failed, total=summ.total + failed,
+                       details=details + summ.details)
