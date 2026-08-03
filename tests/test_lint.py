@@ -1,4 +1,5 @@
 # tests/test_lint.py
+import json
 from pathlib import Path
 from l1_kb.ingest.lint import checker
 from l1_kb.ingest.wiki.index_log import rebuild_index
@@ -97,3 +98,24 @@ def test_report_counts(tmp_path: Path):
     total_issues = len(rep.issues)
     assert rep.errors + rep.warnings + rep.info == total_issues
     assert rep.ts == "2026-08-03"
+
+def test_lint_report_write_and_summary(tmp_path):
+    from l1_kb.ingest.lint.report import write_report, format_summary, exit_code
+    from l1_kb.ingest.lint.checker import Issue, LintReport
+    rep = LintReport(ts="2026-08-03", issues=[
+        Issue("L2_GHOST", "error", "幽灵", page="entity_foo"),
+        Issue("L3_ORPHAN", "warn", "孤儿", page="concept_bar"),
+        Issue("L5_GAP", "info", "缺口", type="process"),
+    ])
+    rep.errors = 1; rep.warnings = 1; rep.info = 1
+    out = tmp_path / "lint_report.json"
+    write_report(rep, out)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["errors"] == 1 and data["warnings"] == 1 and data["info"] == 1
+    assert len(data["issues"]) == 3
+    assert data["issues"][0]["code"] == "L2_GHOST"
+    s = format_summary(rep)
+    assert "errors: 1" in s and "warnings: 1" in s and "L2_GHOST" in s
+    assert exit_code(rep) == 1
+    rep.errors = 0
+    assert exit_code(rep) == 0
