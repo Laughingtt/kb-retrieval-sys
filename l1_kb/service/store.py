@@ -68,7 +68,8 @@ def load_store(wiki_root: Path) -> WikiStore:
         title = meta.title or slug
         secs: list[SectionEntry] = []
         for s in split_sections(body):
-            seg = make_snippet(body, s.line_start, s.line_end, max_chars=_MAX_BODY_CHARS)
+            # make_snippet 切行范围（不在此处截断，留给 _truncate 带标记截断）
+            seg = make_snippet(body, s.line_start, s.line_end, max_chars=len(body) + 1)
             secs.append(SectionEntry(
                 section_id=s.section_id,
                 title=s.title,

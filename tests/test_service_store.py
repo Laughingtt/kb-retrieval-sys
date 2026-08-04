@@ -1,5 +1,5 @@
 from pathlib import Path
-from l1_kb.service.store import load_store, PageEntry, SectionEntry, WikiStore
+from l1_kb.service.store import load_store, PageEntry, SectionEntry, WikiStore, _MAX_BODY_CHARS
 
 
 def _make_wiki(root: Path) -> None:
@@ -28,6 +28,7 @@ def _make_wiki(root: Path) -> None:
     # index/log/overview 应被跳过
     (w / "index.md").write_text("# Wiki Index\n", encoding="utf-8")
     (w / "log.md").write_text("# Wiki Log\n", encoding="utf-8")
+    (w / "overview.md").write_text("# Wiki Overview\n", encoding="utf-8")
 
 
 def test_load_store_parses_pages(tmp_path):
@@ -39,6 +40,7 @@ def test_load_store_parses_pages(tmp_path):
     assert "customer__bb" in slugs
     assert "index" not in slugs  # 跳过 index
     assert "log" not in slugs    # 跳过 log
+    assert "overview" not in slugs  # 跳过 overview
 
 
 def test_load_store_by_slug_and_type(tmp_path):
@@ -63,8 +65,12 @@ def test_load_store_section_body_truncated(tmp_path):
     )
     store = load_store(root)
     page = store.by_slug["big__c1"]
-    # section body 截断到 ≤2000 + 截断标记
-    assert any(len(s.body) <= 2000 + len("…[截断]") for s in page.sections)
+    # 至少一个 section body 被截断：≤2000 + 标记，且以截断标记结尾
+    truncated = [s for s in page.sections if s.body.endswith("…[截断]")]
+    assert truncated, "no section body carries the truncation marker"
+    for s in truncated:
+        assert len(s.body) <= _MAX_BODY_CHARS + len("…[截断]")
+        assert len(s.body) < 3000  # 确实被截短了，不是原文
 
 
 def test_load_store_empty_wiki(tmp_path):
