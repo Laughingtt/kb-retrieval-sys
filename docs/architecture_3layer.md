@@ -2,7 +2,7 @@
 
 > 面向：内部知识库智能体（业务人员对话查询 ~1000 份 PDF）
 > 设计原则：**三层解耦**——知识库（数据）· Agent（推理）· UI（交互）各司其职，靠稳定契约连接
-> 自包含：本项目独立，L1/L2/L3 全部在本目录内搭建；LLM 端点可配置（OpenAI 兼容，如 Doubao）
+> 自包含：本项目独立，L1/L2/L3 全部在本目录内搭建；LLM 端点可配置（OpenAI 兼容，如 DeepSeek）
 > 关联文档：[kb_retrieval_solutions.md](kb_retrieval_solutions.md)（检索方案调研与选型）
 
 ---
@@ -12,8 +12,8 @@
 | 层   | 职责  | 本项目实现 | 状态  |
 | --- | --- | --- | --- |
 | **L3 交互层** | 用户提问、对话、展示带来源引用的答案 | **Open WebUI**（本项目 docker-compose 部署） | 📦 待接入 |
-| **L2 Agent 层** | 拆解问题、多跳检索编排、自评重试、总结带引用返回 | **pi Agent 服务**（TypeScript，暴露 OpenAI 兼容端点） | 🔨 待建 |
-| **L1 知识库层** | 公司业务知识的归纳整理 + 对外提供准确检索 API/CLI | **KB Service**（Python/FastAPI 服务 + 摄入脚本；PDF/Word/Excel→MD + index.json + BM25/向量 RRF 检索 API） | 🔨 待建 |
+| **L2 Agent 层** | 拆解问题、多跳检索编排、自评重试、总结带引用返回 | **Python Agent 服务**（openai SDK 驱动工具循环 + FastAPI 暴露 OpenAI 兼容端点） | 🔨 待建 |
+| **L1 知识库层** | 公司业务知识的归纳整理 + 对外提供准确检索 API/CLI。**语言无关的只读底座，任意 agent/任意语言可经 REST API 调用** | **KB Service**（Python/FastAPI 服务 + 摄入脚本；PDF/Word/Excel→MD + index.json + BM25/向量 RRF 检索 API，已完成 M1–M4） | ✅ 已完成 |
 
 **核心解耦思想**：L2 不直接读文件，只调 L1 的 API；L1 内部检索机制可演进（BM25→BM25+向量 RRF→更先进模型）而 L2 不变；L3 不感知 L1/L2 内部，只把 L2 当成一个"会查公司知识库的模型"。
 
@@ -21,7 +21,7 @@
 flowchart TD
     U[业务人员] --> UI["L3 Open WebUI:8081 已部署"]
 
-    UI -->|OpenAI 兼容 /v1/chat/completions| AG["L2 pi Agent 服务TypeScript 待建"]
+    UI -->|OpenAI 兼容 /v1/chat/completions| AG["L2 Python Agent 服务openai SDK + FastAPI 待建"]
 
     AG -->|1. 拆解问题| AG
     AG -->|2. 检索编排多次/多跳| KB["L1 KB Service检索 API 待建"]
@@ -108,25 +108,27 @@ flowchart LR
 
 ---
 
-## 三、L2 Agent 层（pi 驱动）
+## 三、L2 Agent 层（Python 驱动）
 
 ### 3.1 定位
 
-**L2 是"大脑"：拆问题 → 取全量知识 → 自评 → 总结。** 它不持有知识，只持有"怎么找知识、找够了没、怎么答"的推理能力。用 pi（TypeScript agent toolkit）实现，对外暴露成 OpenAI 兼容端点，让 L3 Open WebUI 把它当成一个模型来调。
+**L2 是"大脑"：拆问题 → 取全量知识 → 自评 → 总结。** 它不持有知识，只持有"怎么找知识、找够了没、怎么答"的推理能力。用 Python 实现（`openai` SDK 驱动工具循环 + FastAPI 暴露 OpenAI 兼容端点），对外暴露成 OpenAI 兼容端点，让 L3 Open WebUI 把它当成一个模型来调。
+
+> **运行时选型**：L1 知识库层是语言无关的只读底座，任意 agent、任意语言都可经其 REST API 调用。L2 选 Python 是为与 L1 同栈、复用既有 DeepSeek 配置与依赖（`openai`/`fastapi`/`httpx` 已在仓库内）、消除跨语言重写成本。原 §3.4 所述 pi（TypeScript）方案已据此废弃——pi 本身能力完备（`pi-agent-core` 工具循环 + `pi-ai` DeepSeek 一等公民支持），但往纯 Python 仓库引入 TS/Node 工具链的代价不划算。
 
 ### 3.2 三件事（对应你的描述）
 
 1. **拆分问题**：把用户口语化问题拆成可检索的子任务（"数据产品 A 的接口怎么调 + 它依赖哪张数据表"→两个检索子目标）。
 2. **取全量知识**：通过 L1 API 多跳检索编排——先 `list_categories` 定位、`list_documents` 缩小、`grep_docs` 精确召回、`read_section` 按需加载原文；多跳场景下跨文档反复取，直到信息充分。
-3. **总结返回**：自评相关性（grade_relevance），不达标改写重检；达标后调 llm_gateway/Doubao 合成**带来源引用**的答案，并标注"知识库未覆盖什么"（借鉴 gbrain 的 gap analysis）。
+3. **总结返回**：自评相关性（grade_relevance），不达标改写重检；达标后调可配置 LLM 端点（当前 DeepSeek）合成**带来源引用**的答案，并标注"知识库未覆盖什么"（借鉴 gbrain 的 gap analysis）。
 
-### 3.3 工具循环（pi tool-use loop）
+### 3.3 工具循环（openai SDK tool-use loop）
 
-pi Agent 配 5 个工具（薄封装 L1 API）+ 1 个自评判断：
+L2 Agent 配 5 个工具（薄封装 L1 API）+ 1 个自评判断：
 
 ```mermaid
 flowchart TD
-    U[用户问题] --> AG[pi Agent 主循环]
+    U[用户问题] --> AG[Python Agent 主循环]
     AG -->|定位| T1[list_categories]
     AG -->|缩小| T2[list_documents]
     AG -->|精确召回| T3[grep_docs BM25]
@@ -137,9 +139,9 @@ flowchart TD
     T4 --> L1
     AG --> G{grade_relevance信息充分?}
     G -->|否 改写重检| AG
-    G -->|是| SYN[调 Doubao 合成带引用+gap标注]
+    G -->|是| SYN[调 DeepSeek 合成带引用+gap标注]
     SYN --> OUT[最终答案]
-    OUT --> GW[llm_gateway]
+    OUT --> GW[LLM 端点]
 
     style AG fill:#e1f5ff,stroke:#0288d1,stroke-width:2px
     style G fill:#fff3e0,stroke:#f57c00
@@ -149,9 +151,9 @@ flowchart TD
 
 ### 3.4 对外暴露
 
-pi Agent 服务暴露 `POST /v1/chat/completions`（OpenAI 兼容，支持流式），L3 Open WebUI 在"连接"里加一个指向它的 base URL 即可。内部生成推理调 llm_gateway（Doubao）。这样 L3 完全无感，复用现有 OpenAI 兼容接入模式。
+L2 Agent 服务暴露 `POST /v1/chat/completions`（OpenAI 兼容，支持流式），L3 Open WebUI 在"连接"里加一个指向它的 base URL 即可。内部生成推理直接调可配置的 OpenAI 兼容 LLM 端点（当前为 DeepSeek `deepseek-v4-flash`，base URL/key/model 均可配置）。这样 L3 完全无感，复用现有 OpenAI 兼容接入模式。
 
-> **替代方案**：也可把 pi 逻辑改写成 Open WebUI Pipeline（Python，已有 :9099 容器）。但 pi 是 TS，跨语言重写成本高；推荐 pi 独立服务 + OpenAI 兼容端点，与 llm_gateway 同构。
+> **替代方案**：曾考虑用 [pi](https://github.com/earendil-works/pi)（TypeScript agent toolkit，`pi-agent-core` + `pi-ai`，DeepSeek 一等公民支持）。但 L1 全栈 Python、DeepSeek 配置已在 Python 侧、`openai`/`fastapi`/`httpx` 依赖已就位，引入 TS/Node 工具链的跨语言重写成本不划算。选 Python 同栈方案；pi 作为 L1 底座的另一个潜在消费者保留可能，但不再是 L2 实现。
 
 ---
 
@@ -159,7 +161,7 @@ pi Agent 服务暴露 `POST /v1/chat/completions`（OpenAI 兼容，支持流式
 
 ### 4.1 现状复用
 
-本项目通过 docker-compose 部署 Open WebUI，并配置一个 OpenAI 兼容 LLM 端点（如 Doubao）。部署后在**管理后台 → 连接**新增一个 OpenAI 兼容连接，base URL 指向 L2 pi Agent 服务，模型名如 `kb-agent`。业务人员选这个模型提问即可。
+本项目通过 docker-compose 部署 Open WebUI，并配置一个 OpenAI 兼容 LLM 端点（如 DeepSeek）。部署后在**管理后台 → 连接**新增一个 OpenAI 兼容连接，base URL 指向 L2 Python Agent 服务，模型名如 `kb-agent`。业务人员选这个模型提问即可。
 
 ### 4.2 L3 的职责边界
 
@@ -170,7 +172,7 @@ pi Agent 服务暴露 `POST /v1/chat/completions`（OpenAI 兼容，支持流式
 ```mermaid
 flowchart LR
     U[业务人员] -->|提问| UI[Open WebUI :8081]
-    UI -->|选 kb-agent 模型| AG[L2 pi Agent]
+    UI -->|选 kb-agent 模型| AG[L2 Python Agent]
     AG -->|流式带引用答案| UI
     UI -->|展示| U
     style UI fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
@@ -184,7 +186,7 @@ flowchart LR
 | --- | --- | --- |
 | L3 → L2 | OpenAI 兼容 HTTP（流式） | 标准 `/v1/chat/completions`；L2 像个模型 |
 | L2 → L1 | HTTP JSON（自定义 REST） | 见 2.3 端点表；只读查询，无写入/执行 |
-| L2 → LLM | OpenAI 兼容（经 llm_gateway） | 推理与生成都走 Doubao 网关 |
+| L2 → LLM | OpenAI 兼容（可配置端点） | 推理与生成都走可配置 LLM 端点（当前 DeepSeek） |
 | L1 内部 | 文件系统 + BM25 索引 | md/ 目录 + index.json + 倒排索引 |
 
 **演进不破坏契约**：L1 检索升级（BM25→混合 RRF）只动内部，L2 调用不变；L2 换 agent 框架只动自己，L3/L1 不变；L3 换前端（Open WebUI→自研）只动 UI，L2 不变。
@@ -197,9 +199,9 @@ flowchart LR
 sequenceDiagram
     participant U as 业务人员
     participant UI as L3 Open WebUI
-    participant AG as L2 pi Agent
+    participant AG as L2 Python Agent
     participant KB as L1 KB Service
-    participant GW as llm_gateway/Doubao
+    participant GW as LLM 端点(DeepSeek)
 
     U->>UI: "数据产品A接口怎么调，依赖哪张表？"
     UI->>AG: POST /v1/chat/completions
@@ -235,19 +237,19 @@ sequenceDiagram
 | 答案带引用 + gap analysis（标注未覆盖） | gbrain | L2 合成阶段 |
 | 权限按 source/scope 隔离 | gbrain | L1 API 按身份过滤 |
 | 多模态图片提取+视觉描述 | llm_wiki | （P0 不采纳：自托管成本高、文本为主收益低，留待 P2+ 视需求评估） |
-| Agent 自主规划+自评重试 | Agentic RAG / 你的需求 | L2 pi 主循环 |
+| Agent 自主规划+自评重试 | Agentic RAG / 你的需求 | L2 Python 主循环 |
 
 ---
 
 ## 八、分层落地顺序
 
-- **P0｜L1 知识库层**（先建，最自包含、可独立验证）
+- **P0｜L1 知识库层**（已完成，M1–M4）
   - PDF→MD 清洗 pipeline（保留表格/版式）+ index.json 生成
-  - KB Service：`/categories` `/documents` `/search`(BM25) `/documents/{id}` `/index`
-  - 验收：CLI 能对 1000 份文档精准召回字段名/流程编号
-- **P1｜L2 pi Agent**（依赖 L1 API）
-  - pi 工具循环 + 5 工具（薄封装 L1）+ grade_relevance 自评重试
-  - 暴露 OpenAI 兼容 `/v1/chat/completions`，接 llm_gateway 生成
+  - KB Service：`/categories` `/documents` `/search`(BM25) `/documents/{id}` `/index` `/health`
+  - 验收：CLI 能对文档精准召回字段名/流程编号 ✅
+- **P1｜L2 Python Agent**（依赖 L1 API）
+  - 工具循环（openai SDK）+ 5 工具（薄封装 L1 REST）+ grade_relevance 自评重试
+  - FastAPI 暴露 OpenAI 兼容 `/v1/chat/completions`，调可配置 LLM 端点生成
   - 验收：多跳问题能跨文档取全、带引用返回
 - **P2｜L3 集成 + 打磨**
   - Open WebUI 加 kb-agent 连接；流式 + 引用渲染
@@ -260,4 +262,4 @@ sequenceDiagram
 
 ## 九、一句话
 
-三层 = **L1 收口知识准确性（KB API/CLI）· L2 收口推理编排（pi Agent 多跳自评）· L3 收口交互（Open WebUI）**，靠 OpenAI 兼容 + REST 两套稳定契约串起来。L3 用 Open WebUI、LLM 端点可配置（OpenAI 兼容）；重点投入 L1 和 L2；L1 先行可独立验证，是整个系统的地基。
+三层 = **L1 收口知识准确性（KB API/CLI，语言无关只读底座）· L2 收口推理编排（Python Agent 多跳自评）· L3 收口交互（Open WebUI）**，靠 OpenAI 兼容 + REST 两套稳定契约串起来。L3 用 Open WebUI、LLM 端点可配置（OpenAI 兼容）；重点投入 L1 和 L2；L1 先行可独立验证，是整个系统的地基。
