@@ -32,8 +32,10 @@ def _write_xlsx(f: Path, rows: list[list]) -> Path:
     return f
 
 
-def _run(args, tmp_path: Path):
+def _run(args, tmp_path: Path, wiki: Path | None = None):
     env = {**os.environ, "DEEPSEEK_MODEL": MODEL, "LLM_MODEL": MODEL, "KB_TODAY": "2026-08-03"}
+    if wiki is not None:
+        env["WIKI_ROOT"] = str(wiki)
     return CliRunner().invoke(cli, args, env=env)
 
 
@@ -71,10 +73,10 @@ def test_m3_add_modify_delete_lint_search(tmp_path: Path):
     assert "新增 1" in r.output, r.output
 
     # search 命中（fallback 或 LLM 都会写 source 页，body 含 order）
-    r = _run(["search", "order", "--wiki-root", str(wiki)], tmp_path)
+    r = _run(["search", "order"], tmp_path, wiki=wiki)
     assert r.exit_code == 0, r.output
-    assert "[#" in r.output, f"add 后未命中: {r.output}"
-    assert "(无结果)" not in r.output
+    assert "[" in r.output, f"add 后未命中: {r.output}"
+    assert "无结果" not in r.output
 
     # 3) modify：改 raw（仍是合法 xlsx，内容不同）→ 清 stale md → clean → ingest
     _write_xlsx(
@@ -104,7 +106,7 @@ def test_m3_add_modify_delete_lint_search(tmp_path: Path):
     assert src_pages == [], f"delete 后仍有 source 页: {src_pages}"
 
     # 7) search delete 后无命中
-    r = _run(["search", "order", "--wiki-root", str(wiki)], tmp_path)
+    r = _run(["search", "order"], tmp_path, wiki=wiki)
     assert r.exit_code == 0, r.output
-    assert "[#" not in r.output, f"delete 后仍命中: {r.output}"
-    assert "(无结果)" in r.output
+    assert "[" not in r.output, f"delete 后仍命中: {r.output}"
+    assert "无结果" in r.output

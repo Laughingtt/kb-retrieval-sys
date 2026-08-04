@@ -42,8 +42,9 @@ def test_kb_ingest_fallback_then_search(tmp_path, monkeypatch):
     res2 = runner.invoke(cli, ["index", "--wiki-root", str(wiki)])
     assert res2.exit_code == 0
 
-    # search order_id → 命中
-    res3 = runner.invoke(cli, ["search", "order_id", "--wiki-root", str(wiki)])
+    # search order_id → 命中（search 走 config.WIKI_ROOT，用 env 指向 tmp wiki）
+    monkeypatch.setenv("WIKI_ROOT", str(wiki))
+    res3 = runner.invoke(cli, ["search", "order_id"])
     assert res3.exit_code == 0
     assert "order_id" in res3.output
 
@@ -91,9 +92,10 @@ def test_ingest_cmd_continues_on_error(tmp_path, monkeypatch):
     assert "失败 0" not in res.output
 
 
-def test_kb_search_empty_wiki(tmp_path):
+def test_kb_search_empty_wiki(tmp_path, monkeypatch):
     wiki = tmp_path / "wiki"
     wiki.mkdir()
+    monkeypatch.setenv("WIKI_ROOT", str(wiki))
     runner = CliRunner()
-    res = runner.invoke(cli, ["search", "order_id", "--wiki-root", str(wiki)])
+    res = runner.invoke(cli, ["search", "order_id"])
     assert res.exit_code == 0  # 空语料不崩
