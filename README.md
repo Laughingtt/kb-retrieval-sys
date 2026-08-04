@@ -530,12 +530,12 @@ kb-serve
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/health` | 健康检查 + wiki 页数 |
-| GET | `/categories` | 类型统计（source/entity/concept/process 各几页） |
-| GET | `/documents?type=&page=&page_size=` | 文档摘要分页（slug/title/type/updated，不含正文） |
-| GET | `/documents/{slug}` | 单文档详情（含 sections；未知 slug / 路径穿越 → 404） |
-| GET | `/index` | 解析 `wiki/index.md`（缺失 → 404） |
-| GET | `/search?q=&top_k=` | BM25 检索（空 q → 400；snippet ≤500 字，body ≤2000 字 + 截断标记） |
+| GET | `/health` | 健康检查 + wiki 页数 + wiki_root + last_updated |
+| GET | `/categories` | 类型统计（source/entity/concept/process 各几页，含 count=0） |
+| GET | `/documents?type=&page=&page_size=` | 文档摘要分页（返回 {items,page,page_size,total}；items 含 slug/type/title/section_count/updated，不含正文；非法 type → 422） |
+| GET | `/documents/{slug}` | 单文档详情（含 slug/type/title/updated/sections；未知 slug / 路径穿越 → 404） |
+| GET | `/index` | 索引条目（扁平 entries 列表，每项 type/title/slug；index.md 缺失则回退派生） |
+| GET | `/search?q=&top_k=` | BM25 检索（返回 query/total/hits；空 q → 400；snippet ≤500 字，body ≤2000 字 + 截断标记） |
 
 参数约束：`page≥1`（默认 1）、`page_size` 1-200（默认 50）、`top_k` 1-50（默认 10），越界由 Pydantic 返回 422。
 

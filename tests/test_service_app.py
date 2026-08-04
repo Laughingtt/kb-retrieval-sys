@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 from fastapi.testclient import TestClient
 
@@ -39,8 +38,12 @@ def test_health(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.get("/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "ok"
-    assert r.json()["pages"] == 2
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["page_count"] == 2
+    assert isinstance(body["wiki_root"], str)
+    assert str(tmp_path / "wiki") in body["wiki_root"]
+    assert body["last_updated"] == "2026-08-04"
 
 
 def test_categories(tmp_path, monkeypatch):
@@ -49,10 +52,12 @@ def test_categories(tmp_path, monkeypatch):
     r = c.get("/categories")
     assert r.status_code == 200
     cats = {x["type"]: x["count"] for x in r.json()}
-    assert cats.get("source") == 1
-    assert cats.get("entity") == 1
-    # 仅含 count>0
-    assert "concept" not in cats
+    # ALL 4 types present including count=0
+    assert set(cats.keys()) == {"source", "entity", "concept", "process"}
+    assert cats["source"] == 1
+    assert cats["entity"] == 1
+    assert cats["concept"] == 0
+    assert cats["process"] == 0
 
 
 def test_documents_list_pagination(tmp_path, monkeypatch):
@@ -60,12 +65,21 @@ def test_documents_list_pagination(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.get("/documents?page=1&page_size=50")
     assert r.status_code == 200
-    docs = r.json()
-    assert len(docs) == 2
-    slugs = {d["slug"] for d in docs}
+    body = r.json()
+    assert set(body.keys()) == {"items", "page", "page_size", "total"}
+    assert body["page"] == 1
+    assert body["page_size"] == 50
+    assert body["total"] == 2
+    items = body["items"]
+    assert len(items) == 2
+    slugs = {d["slug"] for d in items}
     assert "order__a3f9c1e2" in slugs
     # 摘要不含 body
-    assert "body" not in docs[0]
+    assert "body" not in items[0]
+    # each item has section_count and updated
+    for it in items:
+        assert "section_count" in it
+        assert "updated" in it
 
 
 def test_documents_list_type_filter(tmp_path, monkeypatch):
@@ -73,9 +87,29 @@ def test_documents_list_type_filter(tmp_path, monkeypatch):
     c = _client(tmp_path, monkeypatch)
     r = c.get("/documents?type=entity")
     assert r.status_code == 200
-    docs = r.json()
-    assert len(docs) == 1
-    assert docs[0]["slug"] == "customer__bb"
+    body = r.json()
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["slug"] == "customer__bb"
+
+
+def test_documents_illegal_type_422(tmp_path, monkeypatch):
+    _wiki(tmp_path)
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/documents?type=bogus")
+    assert r.status_code == 422
+
+
+def test_documents_pagination_total(tmp_path, monkeypatch):
+    _wiki(tmp_path)
+    c = _client(tmp_path, monkeypatch)
+    # page_size=1 → only 1 item in slice, but total=2
+    r = c.get("/documents?page=1&page_size=1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 1
+    assert body["page_size"] == 1
 
 
 def test_document_detail(tmp_path, monkeypatch):
@@ -86,6 +120,8 @@ def test_document_detail(tmp_path, monkeypatch):
     doc = r.json()
     assert doc["slug"] == "order__a3f9c1e2"
     assert doc["type"] == "source"
+    assert "updated" in doc
+    assert doc["updated"] == "2026-08-04"
     assert len(doc["sections"]) >= 1
     assert "body" in doc["sections"][0]
 
@@ -93,9 +129,12 @@ def test_document_detail(tmp_path, monkeypatch):
 def test_document_detail_404(tmp_path, monkeypatch):
     _wiki(tmp_path)
     c = _client(tmp_path, monkeypatch)
-    assert c.get("/documents/nope").status_code == 404
-    # 路径穿越
-    assert c.get("/documents/..%2Findex").status_code == 404
+    r = c.get("/documents/nope")
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"]
+    # 路径穿越 → 404（路由层拒绝或端点拒绝，均不泄露 FS）
+    r2 = c.get("/documents/..%2Findex")
+    assert r2.status_code == 404
 
 
 def test_index(tmp_path, monkeypatch):
@@ -104,9 +143,24 @@ def test_index(tmp_path, monkeypatch):
     r = c.get("/index")
     assert r.status_code == 200
     body = r.json()
-    assert body["updated"] == "2026-08-04"
-    cats = {x["type"]: x["pages"] for x in body["categories"]}
-    assert any(p["slug"] == "order__a3f9c1e2" for p in cats["source"])
+    assert "entries" in body
+    assert "categories" not in body
+    assert "updated" not in body
+    entries = body["entries"]
+    assert isinstance(entries, list)
+    for e in entries:
+        assert "type" in e and "title" in e and "slug" in e
+    assert any(e["slug"] == "order__a3f9c1e2" for e in entries)
+
+
+def test_index_fallback_no_index_md(tmp_path, monkeypatch):
+    _wiki(tmp_path)
+    (tmp_path / "wiki" / "index.md").unlink()
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/index")
+    assert r.status_code == 200
+    entries = r.json()["entries"]
+    assert any(e["slug"] == "order__a3f9c1e2" for e in entries)
 
 
 def test_search_ok(tmp_path, monkeypatch):
@@ -116,6 +170,8 @@ def test_search_ok(tmp_path, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["query"] == "订单"
+    assert "top_k" not in body
+    assert body["total"] >= 1
     assert len(body["hits"]) >= 1
     assert body["hits"][0]["doc_id"] == "order__a3f9c1e2"
 
@@ -123,8 +179,20 @@ def test_search_ok(tmp_path, monkeypatch):
 def test_search_empty_q_400(tmp_path, monkeypatch):
     _wiki(tmp_path)
     c = _client(tmp_path, monkeypatch)
-    assert c.get("/search?q=").status_code == 400
+    r = c.get("/search?q=")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "query must not be empty"
     assert c.get("/search").status_code == 400
+
+
+def test_search_no_hit_200(tmp_path, monkeypatch):
+    _wiki(tmp_path)
+    c = _client(tmp_path, monkeypatch)
+    r = c.get("/search?q=不存在的词xyz")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 0
+    assert body["hits"] == []
 
 
 def test_no_write_routes(tmp_path, monkeypatch):
