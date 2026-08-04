@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 kb = "l1_kb.cli.kb:cli"
 kb-serve = "l1_kb.service.app:run"
+kb-agent-serve = "l2_agent.server:run"
 
 [build-system]
 requires = ["hatchling"]
