@@ -12,7 +12,7 @@
 | 层   | 职责  | 本项目实现 | 状态  |
 | --- | --- | --- | --- |
 | **L3 交互层** | 用户提问、对话、展示带来源引用的答案 | **Open WebUI**（本项目 docker-compose 部署） | 📦 待接入 |
-| **L2 Agent 层** | 拆解问题、多跳检索编排、自评重试、总结带引用返回 | **Python Agent 服务**（openai SDK 驱动工具循环 + FastAPI 暴露 OpenAI 兼容端点） | 🔨 待建 |
+| **L2 Agent 层** | 拆解问题、多跳检索编排、自评重试、总结带引用返回 | **Python Agent 服务**（openai SDK 驱动工具循环 + FastAPI 暴露 OpenAI 兼容端点） | ✅ 完成（M5） |
 | **L1 知识库层** | 公司业务知识的归纳整理 + 对外提供准确检索 API/CLI。**语言无关的只读底座，任意 agent/任意语言可经 REST API 调用** | **KB Service**（Python/FastAPI 服务 + 摄入脚本；PDF/Word/Excel→MD + index.json + BM25/向量 RRF 检索 API，已完成 M1–M4） | ✅ 已完成 |
 
 **核心解耦思想**：L2 不直接读文件，只调 L1 的 API；L1 内部检索机制可演进（BM25→BM25+向量 RRF→更先进模型）而 L2 不变；L3 不感知 L1/L2 内部，只把 L2 当成一个"会查公司知识库的模型"。
@@ -247,10 +247,10 @@ sequenceDiagram
   - PDF→MD 清洗 pipeline（保留表格/版式）+ index.json 生成
   - KB Service：`/categories` `/documents` `/search`(BM25) `/documents/{id}` `/index` `/health`
   - 验收：CLI 能对文档精准召回字段名/流程编号 ✅
-- **P1｜L2 Python Agent**（依赖 L1 API）
+- **P1｜L2 Python Agent**（依赖 L1 API，完成 M5）
   - 工具循环（openai SDK）+ 5 工具（薄封装 L1 REST）+ grade_relevance 自评重试
   - FastAPI 暴露 OpenAI 兼容 `/v1/chat/completions`，调可配置 LLM 端点生成
-  - 验收：多跳问题能跨文档取全、带引用返回
+  - 验收：多跳问题能跨文档取全、带引用返回 ✅（M5）
 - **P2｜L3 集成 + 打磨**
   - Open WebUI 加 kb-agent 连接；流式 + 引用渲染
   - （可选）评估多模态增强：图表密集文档是否值得引入图片提取/视觉描述/ColPali（P0 不做，视 P2+ 真实需求再定）

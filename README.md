@@ -11,7 +11,7 @@
 | 层 | 职责 | 技术 | 状态 |
 | --- | --- | --- | --- |
 | **L1 知识库层** | PDF→MD 清洗 + wiki 归纳 + 增量摄入 + BM25 检索 + 自检/重建 + 只读 REST API | Python / Click / OpenAI 兼容 LLM / FastAPI | ✅ 已完成（M1–M4） |
-| **L2 Agent 层** | 多跳检索编排、自评重试、带引用总结；OpenAI 兼容端点 | TypeScript / pi | ⏳ 待开始（M5） |
+| **L2 Agent 层** | 多跳检索编排、自评重试、带引用总结；OpenAI 兼容端点 | Python（openai SDK + FastAPI） | ✅ 已完成（M5） |
 | **L3 交互层** | 对话提问、展示带来源引用的答案 | Open WebUI | ⏳ 待开始（M6） |
 
 **层间契约**（稳定）：
@@ -54,6 +54,7 @@ kb-retrieval-sys/
 │       ├── raw/               # 原件（入库，分类子目录）
 │       ├── md/                # 清洗产物（.gitignore）
 │       ├── wiki/              # 知识 wiki（.gitignore）
+│       ├── page_types.yaml    # 页类型配置（单一事实源，驱动全链路）
 │       └── .cache/            # hash.json + ingest-cache.json（.gitignore）
 ├── tests/                     # 单测（mock LLM）+ e2e（真 key）
 └── pyproject.toml             # uv 管理
@@ -90,7 +91,7 @@ which pandoc || echo "pandoc 未装，.docx 将跳过"
 
 L1 的 **wiki 归纳**（M2）调 LLM 把 md → 知识页。无 key 时自动走**确定性 fallback**（只写 source 页，跳过 entity/concept/process 归纳），检索仍可用但召回较粗。
 
-默认接 DeepSeek（公司内部可换任意 OpenAI 兼容端点）。全部走 env，**不写进任何文件**：
+默认接 DeepSeek（公司内部可换任意 OpenAI 兼容端点）。**运行时参数与路径走 env，不写进任何文件**；领域配置（页类型）走 YAML（见下节「页类型配置」）。
 
 | env | 默认 | 说明 |
 | --- | --- | --- |
@@ -105,6 +106,50 @@ L1 的 **wiki 归纳**（M2）调 LLM 把 md → 知识页。无 key 时自动�
 export LLM_API_KEY=sk-xxxxx
 export LLM_MODEL=deepseek-v4-flash
 ```
+
+---
+
+## 页类型配置（page_types.yaml）
+
+wiki 的页类型（source/entity/concept/process）是**领域配置**，不是硬编码：单一事实源 `l1_kb/knowledge_base/page_types.yaml` 驱动全链路——提示词、`page_types` 派生、`index.md` 渲染、REST API、lint 检查全部从它读取。**加第 N 类只改 YAML，不改代码**，全链路自动生效（当前文档覆盖数据/制度/产品三类，后续会扩展，故外化）。
+
+各字段含义：
+
+| 字段 | 说明 |
+| --- | --- |
+| `key` | 类型键（frontmatter `type` 值，合法 slug `[a-z0-9_]`） |
+| `dir` | 落盘目录名（`wiki/{dir}/{slug}.md`） |
+| `label` | 中文展示名（`index.md` 段标题，人类可读） |
+| `description` | 描述（注入 step1/step2 提示词的类型清单） |
+| `mandatory` | 是否必产；全表**恰好 1 个** `mandatory: true` |
+| `orphan_exempt` | L3 孤儿检查豁免（source 摘要页不报孤儿） |
+| `xref_check` | 是否参与 L4 标签交叉引用检查 |
+| `plural_key` | step1 分析 JSON 的数组键名（mandatory 类型留空，恒 1 张） |
+| `dir_aliases` | 容忍的 LLM 漂移目录别名（归一化到 `dir`） |
+| `schema_template` | step1 数组元素的字段模板（JSON 片段字符串，可空） |
+
+校验规则（fail loud，见 `l1_kb/ingest/wiki/page_type_config.py`）：类型非空、key/dir/plural_key 唯一且合法 slug、恰好 1 个 mandatory、`dir_aliases` 不与真实 dir 冲突。文件缺失/损坏 → 硬编码兜底 4 类（warn，不抛，保证开箱即用）。
+
+配置路径可被 env 覆盖（用于切换不同知识库域 / 测试）：
+
+| env | 默认 | 说明 |
+| --- | --- | --- |
+| `KB_PAGE_TYPES_PATH` | `l1_kb/knowledge_base/page_types.yaml` | 页类型配置文件路径 |
+
+加第 5 类示例（如「制度」policy）——在 `types` 追加一项即可：
+
+```yaml
+types:
+  # ... 既有 source/entity/concept/process ...
+  - key: policy
+    dir: policies
+    label: 制度
+    description: 制度条文
+    plural_key: policies
+    xref_check: true
+```
+
+保存后无需改任何代码：提示词自动含 policy 描述与 `wiki/policies/` 路径、`index.md` 渲染 `## 制度` 段、`/documents?type=policy` 合法（不 422）、lint L4 检查覆盖 policy。
 
 ---
 
@@ -557,10 +602,54 @@ kb-serve
 | **M2** | wiki 归纳层（LLM 两步归纳 + ingest-cache + BM25 检索） | ✅ 完成 |
 | **M3** | 增量摄入与自更新闭环（hash.json 三态 + ingest_log + lint + rebuild） | ✅ 完成 |
 | **M4** | L1 只读 REST API（`/categories` `/documents` `/search` `/documents/{id}` `/index` `/health`） | ✅ 完成 |
-| **M5** | L2 pi Agent（5 工具循环 + 自评重试 + OpenAI 兼容端点） | ⏳ |
+| **M5** | L2 Python Agent（5 工具循环 + 自评重试 + OpenAI 兼容端点） | ✅ 完成 |
 | **M6** | L3 Open WebUI 集成（流式 + 引用渲染） | ⏳ |
 
-**M5 要点**：在 M4 只读 REST 之上构建 L2 pi Agent —— 5 工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）薄封装 L1 API，Agent 自主多跳 + 自评重试，暴露 OpenAI 兼容端点供 L3 调用。L1→L2 契约已由 M4 固化（6 个只读 GET 端点）。
+**M5 要点**：在 M4 只读 REST 之上构建 L2 Python Agent —— 5 工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）薄封装 L1 API，Agent 自主多跳 + 自评重试，暴露 OpenAI 兼容端点供 L3 调用。L1→L2 契约已由 M4 固化（6 个只读 GET 端点）。
+
+---
+
+## L2 Agent 层（M5）
+
+L2 是基于 `openai` SDK 工具循环 + FastAPI 的 Python Agent 服务，薄封装 L1 只读 REST API，对外暴露 **OpenAI 兼容**端点，L3（Open WebUI）可直接当模型接入。
+
+### 启动
+
+```bash
+# 1. 先起 L1（默认 8011，指向 l1_kb/knowledge_base/wiki）
+.venv/bin/kb-serve &
+
+# 2. 注入 LLM key（DeepSeek，或任意 OpenAI 兼容端点）
+export LLM_API_KEY="$DEEPSEEK_API_KEY"   # 或 bash -lic 'echo $LLM_API_KEY'
+export LLM_BASE_URL=https://api.deepseek.com/v1
+export LLM_MODEL=deepseek-chat
+export L1_BASE_URL=http://127.0.0.1:8011
+
+# 3. 起 L2（默认 8012）
+.venv/bin/kb-agent-serve
+```
+
+### 端点
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/health` | 健康检查 |
+| GET | `/v1/models` | 返回模型名 `kb-agent` |
+| POST | `/v1/chat/completions` | OpenAI 兼容（含 stream 流式） |
+
+### L3（Open WebUI）接入
+
+在 Open WebUI 添加一个 OpenAI 兼容连接：
+
+- **Base URL**：`http://<l2-host>:8012/v1`
+- **模型名**：`kb-agent`
+- **API Key**：任意（L2 不校验）
+
+用户提问后，L2 Agent 会自主多跳检索 L1、自评重试、带引用总结返回。
+
+> 工具边界严格只读：5 个工具均为 L1 GET 端点的薄封装，无写入/执行能力（守护 grep 见 M5 验收）。
+
+---
 
 **已明确砍掉**：`kb watch` 常驻监听（M3 改手动 loop）；向量检索（P0 阶段先用 BM25，够用再上）。
 

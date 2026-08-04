@@ -40,3 +40,7 @@ packages = ["l1_kb"]
 [tool.pytest.ini_options]
 testpaths = ["tests", "l2_agent/tests"]
 pythonpath = ["."]
+markers = [
+    "e2e: end-to-end against real L1+LLM (skipped by default)",
+]
+addopts = "-m 'not e2e'"
