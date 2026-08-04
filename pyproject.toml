@@ -37,5 +37,5 @@ build-backend = "hatchling.build"
 packages = ["l1_kb"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "l2_agent/tests"]
 pythonpath = ["."]
