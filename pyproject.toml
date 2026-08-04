@@ -14,16 +14,20 @@ dependencies = [
     "jieba>=0.42",
     "rank-bm25>=0.2.2",
     "pyyaml>=6.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "reportlab>=4.0",   # 生成合成 PDF fixture
+    "httpx>=0.27",
 ]
 
 [project.scripts]
 kb = "l1_kb.cli.kb:cli"
+kb-serve = "l1_kb.service.app:run"
 
 [build-system]
 requires = ["hatchling"]
