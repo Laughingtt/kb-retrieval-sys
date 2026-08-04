@@ -169,8 +169,9 @@ def documents(
         pages = list(store.by_type.get(type, []))
     else:
         pages = list(store.pages)
-    # sort: type asc, within group by title asc
-    pages.sort(key=lambda p: (p.type, p.title))
+    # sort: 按 type 升序（canonical order，与 index_log.rebuild_index 一致）、组内按 title 升序
+    type_rank = {t: i for i, t in enumerate(_PAGE_TYPE_ORDER)}
+    pages.sort(key=lambda p: (type_rank.get(p.type, len(_PAGE_TYPE_ORDER)), p.title))
     total = len(pages)
     start = (page - 1) * page_size
     chunk = pages[start:start + page_size]
