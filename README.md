@@ -126,6 +126,206 @@ order_detail.xlsx ──clean──► order_detail__*.md ──ingest(LLM)─�
 
 ---
 
+## 三步核心流程详解（代码内流程）
+
+下面三张流程图按代码实际调用链展开（文件名/函数名标注在节点上），说明每一步在做什么、读写哪些产物。
+
+### 1️⃣ `kb clean`：raw → md（确定性，不调 LLM）
+
+入口 `cli/kb.py:clean` → `ingest/clean.py:clean_one`。逐文件递归，每文件独立清洗。
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ kb clean <PATH>                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  递归遍历 PATH 下 SUPPORTED_EXTS (.pdf/.docx/.xlsx/.md) 文件
+        │  对每个文件 f 执行 clean_one(raw_root, f, md_root) ──┐
+        │                                                      │
+        │   ┌──────────────────────────────────────────────────┘
+        │   │
+        │   ▼ ① safe_path.is_safe_path(raw_root, f)
+        │      resolve 后是否在 raw_root 内、是文件、非跳出软链？
+        │      └─ 否 → 返回 skipped(reason="路径不安全")，CLI warn 跳过
+        │   │
+        │   ▼ ② doc_id.make_doc_id(raw_root, f)
+        │      rel = f 相对 raw_root (data_table/order_detail.xlsx)
+        │      slug = slugify_path(rel) → "data_table_order_detail"
+        │            (去扩展名, 非[a-zA-Z0-9]→_, 连续_压缩, 小写)
+        │      digest = sha256(f.read_bytes())[:8]
+        │      doc_id = f"{slug}__{digest}"   ← 不含 category(稳定身份)
+        │   │
+        │   ▼ ③ _derive_category(raw_root, f) → "data_table"
+        │      (临时: raw 相对路径第一段; M2 LLM 会重分类, 不影响 doc_id)
+        │   │
+        │   ▼ ④ cleaners.dispatcher.cleaner_for(f) → 选 Cleaner
+        │      .pdf  → PdfCleaner   (pymupdf4llm 权威 + pdfplumber 表格兜底)
+        │      .docx → WordCleaner  (pandoc; 未装则 raise PandocNotAvailableError→skipped)
+        │      .xlsx → ExcelCleaner (openpyxl+pandas; 宽表>20列触发字段分组 F4)
+        │      .md   → MarkdownCleaner (ATX 规范化)
+        │      md_text = cleaner.to_markdown(f)   ← 带 #/##/### + pipe 表
+        │   │
+        │   ▼ ⑤ section_splitter.split(md_text) → list[Section]
+        │      扫 ^#{1,3}\s 标题行 → 相邻标题间为一个 section
+        │      Section(section_id=s0/s1.., title, line_start, line_end, level,
+        │              is_table=正文首行以|开头→豁免200行二次切分)
+        │      过长(>200行)且非表 → 按空行二次切分
+        │   │
+        │   ▼ ⑥ 写盘 (非 dry-run)
+        │      md_path = md_root/{category}/{doc_id}.md
+        │      md_path.write_text(md_text)
+        │   │
+        │   └─► CleanResult(doc_id, category, md_path, sections)
+        │
+        ▼
+  CLI 汇总: 完成: 成功 N, 跳过 M, 失败 K (共 X 文件)
+  产物: md/{category}/{doc_id}.md   (doc_id 即后续一切的身份锚点)
+```
+
+**关键设计**：`doc_id` 由「raw 相对路径 + sha256(字节)」派生，**不含 category**。这让 LLM 重分类、文件迁移都不破坏身份与引用——后续 ingest/检索/增量都靠它对齐。
+
+### 2️⃣ `kb ingest`：md → wiki（LLM 两步归纳 + 增量三态）
+
+入口 `cli/kb.py:ingest`。PATH 在 `raw_root` 下 → 走 M3 增量（`incremental/ingest_flow.py`）；在 `md_root` 下 → 走 M2 直摄入（向后兼容）。下图为 raw 三态主流程。
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ kb ingest <raw_root>                                                     │
+└─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼  client = make_client_from_config()   (无 key → None→fallback)
+        │
+        ▼  ingest_flow.run_incremental(...)
+        │
+        ▼  change_detect.detect_changes(raw_root, hash.json)
+        │   扫 raw/ 每个支持文件 → 算 sha256 → 对比 hash.json 记录 → 四态:
+        │
+        │   ┌──────────┬─────────────────────────────────────────────┐
+        │   │ add      │ hash.json 无记录 + raw 存在                   │
+        │   │ modify   │ 有记录但 sha256 变了                          │
+        │   │ skip     │ 有记录且 sha256 不变  ← 整文件跳过            │
+        │   │ delete   │ hash.json 有记录但 raw 文件已删               │
+        │   └──────────┴─────────────────────────────────────────────┘
+        │
+        ├───────────────────── add / modify ──────────────────────────────┐
+        │                                                                 │
+        │   modify 先 purge_source(purge_md=False)  ← delete-then-add     │
+        │   (删旧 wiki 页 + 旧 cache 条目, 但保留新 md 供下面摄入)          │
+        │                                                                 │
+        │   ▼ _ingest_one(item, action=add|modify)
+        │      ┌────────────────────────────────────────────────────────┐
+        │      │ (a) delete.find_md_for_slug(md_root, slug)             │
+        │      │     glob **/{slug}__*.md → md 绝对路径 (无则 warn 跳过) │
+        │      │                                                        │
+        │      │ (b) wiki.ingest.ingest_source(md_path, identity=md路径,│
+        │      │         wiki_root, cache_path, client, today)          │
+        │      │   ┌──────────────────────────────────────────────────┐ │
+        │      │   │ 1. content_hash(md_text) = sha256(正文)           │ │
+        │      │   │ 2. check_cache(identity, hash)?                   │ │
+        │      │   │    命中(hash 同 且 written_paths 全在盘上)→ skip   │ │
+        │      │   │ 3. client 有? → _two_step_llm:                     │ │
+        │      │   │      step1: chat_json(分析→JSON: 类型/标题/related)│ │
+        │      │   │      step2: chat_text(生成 FILE block 列表)        │ │
+        │      │   │      parse_file_blocks → [(path, content), ...]    │ │
+        │      │   │    LLM 失败/无 client → build_fallback_pages       │ │
+        │      │   │      (确定性: 仅 1 张 source 摘要页, 标题+首段)     │ │
+        │      │   │ 4. 对每个 page:                                    │ │
+        │      │   │      normalize_wiki_path (processes→process 别名)  │ │
+        │      │   │      merge_page(existing_text, content) → 合并     │ │
+        │      │   │      wiki_root/{sources|entities|...}/{slug}.md    │ │
+        │      │   │ 5. rebuild_index(wiki_root) → index.md (确定性)    │ │
+        │      │   │ 6. append_log → wiki/log.md                       │ │
+        │      │   │ 7. save_cache(identity, hash, written_paths)       │ │
+        │      │   └──────────────────────────────────────────────────┘ │
+        │      │                                                        │
+        │      │ (c) 事务提交: hash_store.upsert_hash(                  │
+        │      │       slug, hash=raw sha256, path, ingested_at)         │
+        │      │     ← hash.json 最后落盘 = 提交标记                     │
+        │      │ (d) ingest_log.append_ingest(action=add|modify)         │
+        │      └────────────────────────────────────────────────────────┘
+        │                                                                 │
+        ├───────────────────── skip ─────────────────────────────────────┘
+        │   整文件不处理 (summ.skipped += 1)
+        │
+        ├───────────────────── delete ──────────────────────────────────┐
+        │   ▼ purge_source(slug, purge_md=True)                          │
+        │     页面定位 3 策略:                                            │
+        │       1. 遍历 cache 所有 key(=md路径) 反推 slug, 匹配者收集     │
+        │          paths[] + 标记该 key 待删 (命中"旧md已删cache还在")    │
+        │       2. 当前 md 的 cache 条目补 paths[] (常规 delete)          │
+        │       3. 仍空 → glob sources/{slug}__*.md 兜底                 │
+        │     删 wiki 页 → 删 cache 条目 → 删 md → remove_hash(slug)     │
+        │                → rebuild_index (清幽灵链接)                    │
+        │   ▼ ingest_log.append_delete
+        │
+        ▼
+  CLI 汇总: 完成: 新增 X, 修改 Y, 删除 Z, 跳过 W, 失败 V (共 N 文件)
+  产物: wiki/{sources,entities,concepts,process}/*.md + index.md + log.md
+        .cache/ingest-cache.json (wiki层跳过缓存)
+        .cache/hash.json         (raw层变更检测权威)
+        ingest_log.jsonl         (时序审计)
+```
+
+**两层缓存（方案 A，并存）**：
+- `hash.json` = **raw 层权威**：key=slug，value=raw 字节 sha256 + raw 相对路径。决定 add/modify/delete/skip 四态。
+- `ingest-cache.json` = **wiki 层跳过缓存**：key=md 绝对路径(`source_identity`)，value=md 正文 sha256 + written_paths。命中则跳过昂贵的两步 LLM。
+
+**事务语义**：`upsert_hash` 是单文档事务的最后一步（commit 标记）。中途崩溃 → hash.json 未更新 → 下次 `detect_changes` 重判为 modify → purge 重摄入 → 自愈。
+
+**modify = delete-then-add**：先 `purge_source(purge_md=False)` 删旧 wiki 页（保留刚 clean 出的新 md），再 `_ingest_one` 重新归纳。保证旧身份的页被清干净，新身份写入。
+
+### 3️⃣ `kb search`：BM25 检索 wiki
+
+入口 `cli/kb.py:search` → `retrieval/`。纯内存，每次运行即时扫 wiki 重建索引（P0 阶段语料小，够用）。
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ kb search "<query>" [--top-k N]                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼ ① _wiki_entries(wiki_root)
+        │   扫 wiki/**/*.md (跳过 index/log/overview)
+        │   每页: 解析 frontmatter(title) + 复用 section_splitter 切 section
+        │   每个 section → 1 个 entry:
+        │     {slug, section_id, title="页title / section标题",
+        │      body_text=该 section 行范围原文, _text=整页原文, _line_start/end}
+        │
+        ▼ ② BM25Retriever(entries)
+        │   corpus[i] = tokenize(title + body_text)   ← jieba 分词
+        │   bm25 = BM25Okapi(corpus)                  ← rank-bm25 (真BM25: IDF+长度归一)
+        │
+        ▼ ③ bm25.search(query, top_n=50)
+        │   q_tokens = tokenize(query)
+        │   scores = bm25.get_scores(q_tokens)        ← 每文档打分
+        │   排序取 top50
+        │   过滤: 该文档对查询词项须有词频命中 (防 IDF=0/负的误召回)
+        │   → list[SearchHit(doc_id=slug, section_id, title, score, source="bm25")]
+        │
+        ▼ ④ RRFFuser().fuse([hits], k=60, top_k=N)
+        │   单路 RRF 直通 (P0 无向量, 预留多路融合接口)
+        │   → 截断到 top_k
+        │
+        ▼ ⑤ 逐 hit 渲染
+        │   回查 entries 找原文 → snippet.make_snippet(整页原文, line_start, line_end)
+        │     按 section 行号范围切 ≤500 字符
+        │   打印:
+        │     [#1] score=0.8421  {slug} / {section_id}
+        │          {snippet 前3行}
+        │          [sources]      ← frontmatter type
+        │
+        ▼
+  无命中 → "(无结果)"
+  产物: 仅终端输出 (search 是只读, 不写任何文件)
+```
+
+**关键设计**：
+- **检索单元 = section**：与 ingest 的 section 切分复用同一 `section_splitter`，保证「检索/索引/加载」三层一致（PRD §6.3）。
+- **纯内存重建**：不持久化倒排索引，P0 语料小（~1000 doc）秒级重建。M4 起对外提供 REST 时仍走此路径。
+- **对 L2 透明**：检索机制现为 BM25，未来可换混合检索（+向量），但 `/search` 端点契约不变。
+
+---
+
 ## CLI 操作步骤
 
 入口：`.venv/bin/python -m l1_kb.cli.kb <命令>`（装入口后可直接 `kb <命令>`）。
