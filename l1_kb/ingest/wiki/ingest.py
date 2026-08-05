@@ -19,7 +19,8 @@ from .file_blocks import parse_file_blocks
 from .index_log import append_log, rebuild_index
 from .ingest_cache import check_cache, content_hash, save_cache
 from .merge import merge_page
-from .page_types import normalize_wiki_path, slug_from_source_identity
+from .page_types import dir_for_type, normalize_wiki_path, slug_from_source_identity
+from .page_type_config import get_registry
 
 __all__ = ["IngestResult", "ingest_source", "build_fallback_pages", "read_index_md", "make_client_from_config"]
 
@@ -63,7 +64,8 @@ def build_fallback_pages(source_identity: str, md_text: str, today: str) -> list
     sources=[identity]；tags/related 空。
     """
     slug = slug_from_source_identity(source_identity)
-    path = f"wiki/sources/{slug}.md"
+    mandatory_key = get_registry().mandatory.key
+    path = f"wiki/{dir_for_type(mandatory_key)}/{slug}.md"
     sections = split_sections(md_text)
     body_parts = []
     for s in sections:
@@ -76,7 +78,7 @@ def build_fallback_pages(source_identity: str, md_text: str, today: str) -> list
     body = "\n\n".join(p for p in body_parts if p) or "(Analysis not available)"
     fm = (
         "---\n"
-        f"type: source\n"
+        f"type: {mandatory_key}\n"
         f'title: "Source: {source_identity}"\n'
         f"created: {today}\n"
         f"updated: {today}\n"

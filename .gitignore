@@ -20,3 +20,14 @@ l1_kb/knowledge_base/.cache/
 /lint_report.json
 
 # 合成样本的 md 产物不入库（raw 样本本身入库）
+
+# 端到端验证临时工作区（测试/手跑残留，可随时删）
+.test_docs_run/
+
+# kb_eval: 保留脚本/用例/报告/原始数据，忽略生成物（可由命令复现）
+kb_eval/.cache/
+kb_eval/ingest_log.jsonl
+kb_eval/lint_report.json
+kb_eval/md/
+kb_eval/wiki/
+kb_eval/results.json

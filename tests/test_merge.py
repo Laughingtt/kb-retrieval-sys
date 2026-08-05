@@ -60,3 +60,38 @@ def test_multi_source_dedup_when_new_body_contained():
     # new_body 完全被 existing 包含 → 不重复追加段落
     assert out.count("shared content") == 1
     assert "来源补充: s2.xlsx" not in out
+
+
+def test_self_heal_double_layered_broken_existing():
+    """旧页是双层 frontmatter 坏页（外层空 shell + body 内含真实 fm），
+    再合并一个正确新页时应自愈：产出单层、title 非空、无重复 type 行。"""
+    broken_existing = (
+        "---\n"
+        "type: entity\n"
+        'title: ""\n'
+        "created: 2026-08-04\n"
+        "updated: 2026-08-04\n"
+        "tags: []\n"
+        "related: []\n"
+        "sources: []\n"
+        "---\n\n"
+        "type: entity\n"
+        'title: "llm_wiki"\n'
+        "created: 2026-07-30\n"
+        "updated: 2026-07-30\n"
+        "tags: [开源]\n"
+        "related: [entity_lancedb]\n"
+        "sources: [llm_wiki_borrow_and_adapt_plan]\n"
+        "---\n\n"
+        "# llm_wiki\n旧正文\n"
+    )
+    new = _page("entity", "llm_wiki", ["llm_wiki_borrow_and_adapt_plan"], "新正文", updated="2026-08-04")
+    out = merge_page(
+        broken_existing, "wiki/entities/entity_llm_wiki.md", new,
+        "llm_wiki_borrow_and_adapt_plan", "2026-08-04", exists=True,
+    )
+    assert out is not None
+    assert out.count("type: entity") == 1          # 单层
+    assert 'title: ""' not in out                    # 自愈后 title 非空
+    assert "新正文" in out
+    assert "entity_lancedb" in out                   # 旧真实 related 保住

@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 from .frontmatter import parse
-from .page_types import PAGE_TYPES
+from .page_type_config import get_registry
 
 __all__ = ["rebuild_index", "append_log"]
 
@@ -20,7 +20,9 @@ _EXCLUDED_STEMS = {"index", "log", "overview"}
 
 def _collect_pages(wiki_root: Path) -> dict[str, list[tuple[str, str]]]:
     """遍历 wiki/*.md（排除 index/log/overview 茎），按 type 分组 → {type: [(slug, title)]}。"""
-    groups: dict[str, list[tuple[str, str]]] = {t: [] for t in PAGE_TYPES}
+    page_types = get_registry().types
+    groups: dict[str, list[tuple[str, str]]] = {s.key: [] for s in page_types}
+    valid_keys = {s.key for s in page_types}
     if not wiki_root.exists():
         return groups
     for p in sorted(wiki_root.rglob("*.md")):
@@ -29,7 +31,7 @@ def _collect_pages(wiki_root: Path) -> dict[str, list[tuple[str, str]]]:
             continue
         text = p.read_text(encoding="utf-8")
         meta, _ = parse(text)
-        if meta.type not in PAGE_TYPES:
+        if meta.type not in valid_keys:
             continue
         groups[meta.type].append((stem, meta.title or stem))
     for t in groups:
@@ -38,16 +40,16 @@ def _collect_pages(wiki_root: Path) -> dict[str, list[tuple[str, str]]]:
 
 
 def rebuild_index(wiki_root: Path, today: str) -> None:
-    """重建 wiki/index.md（确定性，原子写）。"""
+    """重建 wiki/index.md（确定性，原子写）。段标题用类型 label（人类可读）。"""
     groups = _collect_pages(wiki_root)
     lines = ["# Wiki Index", f"_" + f"updated: {today}" + "_", ""]
     any_pages = False
-    for t in ("source", "entity", "concept", "process"):
-        pages = groups.get(t, [])
+    for spec in get_registry().types:
+        pages = groups.get(spec.key, [])
         if not pages:
             continue
         any_pages = True
-        lines.append(f"## {t}")
+        lines.append(f"## {spec.label}")
         for slug, title in pages:
             lines.append(f"- [[{slug}|{title}]]")
         lines.append("")
