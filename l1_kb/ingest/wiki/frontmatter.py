@@ -84,14 +84,47 @@ def json_quote(s: str) -> str:
     return json.dumps(s, ensure_ascii=False)
 
 
+def _looks_like_yaml_kv_lines(text: str) -> bool:
+    """text 是否像裸 frontmatter（多行 `key: value`），用于兜底识别 LLM 漏写首行 --- 的情况。"""
+    lines = [ln for ln in text.splitlines() if ln.strip() != ""]
+    if not lines:
+        return False
+    kv = 0
+    for ln in lines:
+        s = ln.strip()
+        # 跳过数组续行/纯数组行
+        if s.startswith("- ") or s.startswith("["):
+            continue
+        if ":" in s:
+            kv += 1
+    return kv >= 2  # 至少 2 个 key:value 才认定为 frontmatter
+
+
 def parse(content: str) -> tuple[Frontmatter, str]:
     """解析 wiki 页文本：首尾 --- 包裹的 YAML frontmatter + body。
 
     无 frontmatter → 返回空 Frontmatter + 原文。
+    兜底：若 LLM 漏写首行 `---`（content 以 `key: value` 开头、随后有独立 `---` 闭合），
+    仍按裸 frontmatter 解析，避免写出双层 frontmatter 的坏页。
     """
     if not content.startswith("---"):
+        # 裸 frontmatter 兜底：找首个独立 `---` 行作为闭合
+        # 仅当前段像 key:value YAML 时才认定，避免把纯正文误判。
+        end = content.find("\n---")
+        if end != -1:
+            head = content[:end]
+            if _looks_like_yaml_kv_lines(head):
+                yaml_text = head
+                body = content[end + 4 :]  # 跳过 \n---
+                while body.startswith("\r\n") or body.startswith("\n"):
+                    body = body[1:] if body.startswith("\n") else body[2:]
+                try:
+                    d = yaml.safe_load(yaml_text) or {}
+                except yaml.YAMLError:
+                    d = {}
+                return Frontmatter.from_dict(d), body
         return Frontmatter(), content
-    # 找闭合 ---
+    # 标准：首尾 --- 包裹
     rest = content[3:]
     # 跳过首个换行
     if rest.startswith("\r\n"):

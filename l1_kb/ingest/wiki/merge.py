@@ -58,6 +58,13 @@ def merge_page(
         return dump(new_fm) + "\n\n" + new_body.strip() + "\n"
 
     existing_fm, existing_body = parse(existing_text)
+    # 自愈：旧页若是双层 frontmatter 坏页（外层空 shell + body 内含真实 frontmatter），
+    # existing_body 会以 `type:` 开头 —— 再 parse 一次取回真实字段，避免 stale 空值污染合并。
+    if existing_body.lstrip().startswith("type:") or existing_body.lstrip().startswith("title:"):
+        inner_fm, inner_body = parse(existing_body)
+        if inner_fm.type or inner_fm.title:
+            existing_fm = inner_fm
+            existing_body = inner_body
     existing_fm = canonicalize_sources(existing_fm, source_identity)
 
     # 单源页 → 替换 body

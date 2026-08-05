@@ -1,19 +1,19 @@
 import pytest
 
 from l1_kb.ingest.wiki import page_types as pt
+from l1_kb.ingest.wiki.page_type_config import get_registry
 
 
-def test_four_page_types():
-    assert pt.PAGE_TYPES == frozenset({"source", "entity", "concept", "process"})
+def test_page_types_match_registry():
+    # PAGE_TYPES 从 page_types.yaml 派生；不再硬编码字面量集合
+    assert pt.PAGE_TYPES == frozenset(s.key for s in get_registry().types)
 
 
 def test_dir_type_mapping_roundtrip():
-    assert pt.dir_for_type("source") == "sources"
-    assert pt.dir_for_type("entity") == "entities"
-    assert pt.dir_for_type("concept") == "concepts"
-    assert pt.dir_for_type("process") == "process"
-    assert pt.type_for_dir("sources") == "source"
-    assert pt.type_for_dir("process") == "process"
+    # 遍历 registry 逐类型断言 dir↔type 双射（自动覆盖新增类型）
+    for spec in get_registry().types:
+        assert pt.dir_for_type(spec.key) == spec.dir
+        assert pt.type_for_dir(spec.dir) == spec.key
     assert pt.type_for_dir("unknown") is None
 
 

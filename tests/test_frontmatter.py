@@ -33,6 +33,37 @@ def test_parse_no_frontmatter():
     assert body == "纯正文无 frontmatter"
 
 
+def test_parse_bare_frontmatter_without_leading_dashes():
+    """LLM 漏写首行 ---：content 以 key:value 开头、随后有独立 --- 闭合。
+    parse 应兜底识别为 frontmatter，避免写出双层 frontmatter 坏页。"""
+    content = (
+        "type: concept\n"
+        'title: "RRF 融合"\n'
+        "created: 2026-08-04\n"
+        "updated: 2026-08-04\n"
+        "tags: [检索, 融合]\n"
+        "related: [entity_llm_wiki]\n"
+        "sources: [docs/x.md]\n"
+        "---\n\n"
+        "# RRF 融合\n\n正文。\n"
+    )
+    meta, body = fm.parse(content)
+    assert meta.type == "concept"
+    assert meta.title == "RRF 融合"
+    assert meta.tags == ["检索", "融合"]
+    assert meta.related == ["entity_llm_wiki"]
+    assert meta.sources == ["docs/x.md"]
+    assert body.startswith("# RRF 融合")
+
+
+def test_parse_plain_text_not_misdetected_as_frontmatter():
+    """纯正文（无 --- 闭合、不像 key:value）不应被兜底误判为 frontmatter。"""
+    plain = "这是一段纯正文，没有 frontmatter，也没有 --- 闭合行"
+    meta, body = fm.parse(plain)
+    assert meta.type == ""
+    assert body == plain
+
+
 def test_union_arrays():
     a = fm.Frontmatter(
         type="entity", title="A", created="2026-07-01", updated="2026-07-01",

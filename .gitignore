@@ -20,3 +20,6 @@ l1_kb/knowledge_base/.cache/
 /lint_report.json
 
 # 合成样本的 md 产物不入库（raw 样本本身入库）
+
+# 端到端验证临时工作区（测试/手跑残留，可随时删）
+.test_docs_run/

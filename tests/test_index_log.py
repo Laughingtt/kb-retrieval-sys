@@ -21,8 +21,8 @@ def test_rebuild_index_groups_by_type_sorted(tmp_path):
     index_log.rebuild_index(wiki, "2026-07-31")
     idx = (wiki / "index.md").read_text(encoding="utf-8")
     assert idx.startswith("# Wiki Index")
-    # 按 type 分组，组内按 title 排序
-    assert idx.index("## source") < idx.index("## entity")
+    # 按 type 分组（段标题用 label），组内按 title 排序
+    assert idx.index("## 原件摘要") < idx.index("## 业务实体")
     assert idx.index("[[a_entity|A]]") < idx.index("[[b_entity|B]]")
     # index/log 茎被排除
     assert "index.md" not in idx.replace("# Wiki Index", "")

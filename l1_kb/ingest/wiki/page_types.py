@@ -1,13 +1,17 @@
-"""4 类 wiki 页 + dir↔type 映射 + frontmatter schema 常量 —— M2 设计 §2。
+"""wiki 页类型 + dir↔type 映射 + frontmatter schema 常量 —— M2 设计 §2。
 
-吸收 llm_wiki GENERATION_WIKI_TYPES（9 类）裁剪为 4 类，适配企业知识库。
-process 为本设计新增（llm_wiki 无），承载企业流程/制度文档。
+PAGE_TYPES / TYPE_TO_DIR / DIR_TO_TYPE / _DIR_ALIASES 现从 page_types.yaml
+（registry）派生，详见 page_type_config.py —— 加第 N 类只改 YAML，本模块常量
+经 `_refresh()` 跟随。吸收 llm_wiki GENERATION_WIKI_TYPES（9 类）裁剪为 4 类，
+适配企业知识库；process 为本设计新增（llm_wiki 无），承载企业流程/制度文档。
 dir↔type 双向校验吸收 llm_wiki validateWikiPageRouting 原理（Python 重实现）。
 """
 
 from __future__ import annotations
 
 import re
+
+from .page_type_config import get_registry
 
 __all__ = [
     "PAGE_TYPES",
@@ -22,22 +26,36 @@ __all__ = [
     "normalize_wiki_path",
     "sanitize_slug",
     "slug_from_source_identity",
+    "_refresh",
 ]
 
-# P0 四类页（吸收 llm_wiki 9 类裁剪）
-PAGE_TYPES = frozenset({"source", "entity", "concept", "process"})
 
-# type → 目录段（吸收 llm_wiki dir↔type 映射）
-TYPE_TO_DIR = {
-    "source": "sources",
-    "entity": "entities",
-    "concept": "concepts",
-    "process": "process",
-}
-DIR_TO_TYPE = {v: k for k, v in TYPE_TO_DIR.items()}
+def _build() -> tuple[frozenset[str], dict[str, str], dict[str, str], dict[str, str]]:
+    """从 registry 派生 PAGE_TYPES / TYPE_TO_DIR / DIR_TO_TYPE / _DIR_ALIASES。"""
+    r = get_registry()
+    page_types = frozenset(s.key for s in r.types)
+    type_to_dir = {s.key: s.dir for s in r.types}
+    dir_to_type = {s.dir: s.key for s in r.types}
+    dir_aliases: dict[str, str] = {}
+    for s in r.types:
+        for a in s.dir_aliases:
+            dir_aliases[a] = s.dir
+    return page_types, type_to_dir, dir_to_type, dir_aliases
 
-# process 目录的已知 LLM 漂移别名（step1 schema "processes" 键名诱导）—— 容错到单数 process
-_DIR_ALIASES = {"processes": "process"}
+
+def _refresh() -> None:
+    """重新从 registry 派生模块常量。
+
+    registry 缓存被清/切换（如测试改 KB_PAGE_TYPES_PATH）后，模块级
+    PAGE_TYPES/TYPE_TO_DIR/DIR_TO_TYPE/_DIR_ALIASES 仍是导入时绑定的旧值；
+    调用本函数使它们跟随新配置。page_type_config.get_registry() 内部已做
+    懒加载缓存，故先 _reset_cache() 再 _refresh() 才能拿到新值。
+    """
+    global PAGE_TYPES, TYPE_TO_DIR, DIR_TO_TYPE, _DIR_ALIASES
+    PAGE_TYPES, TYPE_TO_DIR, DIR_TO_TYPE, _DIR_ALIASES = _build()
+
+
+PAGE_TYPES, TYPE_TO_DIR, DIR_TO_TYPE, _DIR_ALIASES = _build()
 
 # frontmatter 字段分类（吸收 llm_wiki LOCKED_FIELDS / UNION_FIELDS）
 LOCKED_FIELDS = ("type", "title", "created")
@@ -102,4 +120,4 @@ def slug_from_source_identity(identity: str) -> str:
     stem = re.sub(r"\.[^.\\/]+$", "", identity)
     # 路径分隔符 → 下划线
     joined = re.sub(r"[\\/]+", "_", stem)
-    return sanitize_slug(joined) or "source"
+    return sanitize_slug(joined) or get_registry().mandatory.key

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ..wiki.frontmatter import parse as parse_fm
 from ..wiki.page_types import PAGE_TYPES, TYPE_TO_DIR
+from ..wiki.page_type_config import get_registry
 from ..incremental.hash_store import load_hash
 from ..incremental.ingest_log import read_log
 
@@ -113,9 +114,11 @@ def _check_l3(wiki_root: Path, issues: list[Issue]) -> None:
     pages = list(_iter_pages(wiki_root))
     for _, _, fm, _ in pages:
         pointed.update(fm.related)
+    registry = get_registry()
     for _, stem, fm, _ in pages:
-        if fm.type == "source":
-            continue  # source 页不报孤儿
+        spec = registry.by_key.get(fm.type)
+        if spec is not None and spec.orphan_exempt:
+            continue  # 配置豁免（source 摘要页不报孤儿）
         if stem not in pointed:
             issues.append(Issue("L3_ORPHAN", "warn", "无 related 指向", page=stem, type=fm.type))
 
@@ -129,8 +132,10 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 
 
 def _check_l4(wiki_root: Path, issues: list[Issue]) -> None:
+    registry = get_registry()
+    xref_types = {s.key for s in registry.types if s.xref_check}
     pages = [(stem, fm) for _, stem, fm, _ in _iter_pages(wiki_root)
-             if fm.type in ("entity", "concept")]
+             if fm.type in xref_types]
     for i, (s1, f1) in enumerate(pages):
         for s2, f2 in pages[i + 1:]:
             if _jaccard(set(f1.tags), set(f2.tags)) >= JACCARD_THRESHOLD:

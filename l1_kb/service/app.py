@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Literal
 
 import l1_kb.config as config
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from l1_kb.ingest.wiki.index_log import _collect_pages
+from l1_kb.ingest.wiki.page_type_config import get_registry
 from l1_kb.service.search import search as svc_search
 from l1_kb.service.store import load_store
 
@@ -22,7 +22,16 @@ __all__ = ["app", "run"]
 app = FastAPI(title="L1 KB Read-only API", version="0.1.0")
 
 _UNSAFE = re.compile(r"[/\\]|\.\.")
-_PAGE_TYPE_ORDER = ("source", "entity", "concept", "process")
+
+
+def _page_type_order() -> list[str]:
+    """类型顺序 = page_types.yaml 的声明顺序。每次调用实时读 registry（测试可切配置）。"""
+    return [s.key for s in get_registry().types]
+
+
+def _label_to_key() -> dict[str, str]:
+    """label → key 映射，用于解析 index.md 的 `## label` 段标题回 type。"""
+    return {s.label: s.key for s in get_registry().types}
 
 
 # --- 出口模型 ---
@@ -106,17 +115,23 @@ def _page_updated(p) -> str | None:
 
 
 def _parse_index_md(idx_path: Path) -> list[IndexEntry]:
-    """Parse wiki/index.md → flat list of IndexEntry. Returns [] on failure."""
+    """Parse wiki/index.md → flat list of IndexEntry. Returns [] on failure.
+
+    段标题用类型 label（人类可读）；解析时经 label→key 映射回 type。
+    向后兼容：映射未命中时回退用 header 本身当 type（兼容旧 index.md 的 raw key 标题）。
+    """
     try:
         text = idx_path.read_text(encoding="utf-8")
     except OSError:
         return []
+    label_to_key = _label_to_key()
     entries: list[IndexEntry] = []
     cur_type: str | None = None
     for line in text.splitlines():
         s = line.strip()
         if s.startswith("## "):
-            cur_type = s[3:].strip()
+            header = s[3:].strip()
+            cur_type = label_to_key.get(header, header)
             continue
         if s.startswith("- [[") and "]]" in s:
             inner = s[4:s.index("]]")]
@@ -133,7 +148,7 @@ def _fallback_entries(root: Path) -> list[IndexEntry]:
     """Derive entries from _collect_pages(by_type). Title-sorted per group."""
     collected = _collect_pages(root)
     out: list[IndexEntry] = []
-    for t in _PAGE_TYPE_ORDER:
+    for t in _page_type_order():
         for slug, title in collected.get(t, []):
             out.append(IndexEntry(type=t, title=title, slug=slug))
     return out
@@ -155,23 +170,27 @@ def health():
 @app.get("/categories", response_model=list[CategoryOut])
 def categories():
     store = load_store(_wiki_root())
-    return [CategoryOut(type=t, count=len(store.by_type.get(t, []))) for t in _PAGE_TYPE_ORDER]
+    return [CategoryOut(type=t, count=len(store.by_type.get(t, []))) for t in _page_type_order()]
 
 
 @app.get("/documents", response_model=PaginatedDocuments)
 def documents(
-    type: Literal["source", "entity", "concept", "process"] | None = None,
+    type: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
+    valid_types = {s.key for s in get_registry().types}
+    if type and type not in valid_types:
+        raise HTTPException(status_code=422, detail=f"unknown page type: {type}")
     store = load_store(_wiki_root())
     if type:
         pages = list(store.by_type.get(type, []))
     else:
         pages = list(store.pages)
     # sort: 按 type 升序（canonical order，与 index_log.rebuild_index 一致）、组内按 title 升序
-    type_rank = {t: i for i, t in enumerate(_PAGE_TYPE_ORDER)}
-    pages.sort(key=lambda p: (type_rank.get(p.type, len(_PAGE_TYPE_ORDER)), p.title))
+    order = _page_type_order()
+    type_rank = {t: i for i, t in enumerate(order)}
+    pages.sort(key=lambda p: (type_rank.get(p.type, len(order)), p.title))
     total = len(pages)
     start = (page - 1) * page_size
     chunk = pages[start:start + page_size]

@@ -2,6 +2,10 @@
 
 路径默认基于项目根（l1_kb/ 上两级）。LLM 配置默认 DeepSeek，公司内部
 OpenAI 兼容端点换 env 即可（CLAUDE.md ③）。全部可被 env 覆盖。
+
+注：本模块只管路径与运行时参数（env）。**领域配置**（wiki 页类型）不经 env，
+走 `l1_kb/knowledge_base/page_types.yaml`（由 page_type_config.py 加载，
+路径可被 env `KB_PAGE_TYPES_PATH` 覆盖）。
 """
 
 from __future__ import annotations
