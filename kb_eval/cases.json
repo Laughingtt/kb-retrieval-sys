@@ -1,0 +1,159 @@
+{
+  "suite": "kb_eval 用例集 v1（订单分析看板领域）",
+  "data_source": "kb_eval/raw（7 份合成文档）→ kb_eval/wiki（11 页）",
+  "cases": [
+    {
+      "id": "T1",
+      "category": "单跳-字段查询",
+      "question": "订单主表 dwd_order_d 里 order_pay_amount 字段是什么意思？",
+      "gold_answer_contains": [
+        "实付金额",
+        "order_total_amount",
+        "discount_amount"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T2",
+      "category": "单跳-口径查询",
+      "question": "GMV 的口径是什么？哪些订单状态算入 GMV？",
+      "gold_answer_contains": [
+        "PAID",
+        "SHIPPED",
+        "DONE",
+        "order_pay_amount"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T3",
+      "category": "单跳-流程编号",
+      "question": "数据资产申请流程的流程编号是多少？有几步？",
+      "gold_answer_contains": [
+        "PRC-2024-010",
+        "6"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T4",
+      "category": "多跳-跨文档",
+      "question": "订单分析看板产品的接入方式有哪些？其中 API 接口的路径和流程编号分别是什么？",
+      "gold_answer_contains": [
+        "Web 看板",
+        "PRC-2024-003",
+        "/api/v1/orders"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T5",
+      "category": "多跳-字段关联",
+      "question": "订单明细表 dwd_order_detail_d 的 line_total 字段如何计算？它的数据质量规则是什么？",
+      "gold_answer_contains": [
+        "qty × unit_price",
+        "discount_amount",
+        "DQ 告警"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T6",
+      "category": "单跳-宽表分组",
+      "question": "订单宽表 order_wide 一共有多少个字段？按什么分组？",
+      "gold_answer_contains": [
+        "24",
+        "order",
+        "amount",
+        "time",
+        "extra"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T7",
+      "category": "多跳-指标溯源",
+      "question": "退货率的口径是什么？退货订单数和已发货订单数分别怎么统计？涉及哪个状态？",
+      "gold_answer_contains": [
+        "RETURNED",
+        "SHIPPED",
+        "DONE",
+        "退货订单数"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    },
+    {
+      "id": "T8",
+      "category": "gap-知识库未覆盖",
+      "question": "知识库里关于员工薪酬体系的内容是什么？",
+      "gold_answer_contains": [
+        "未覆盖",
+        "没有",
+        "不在"
+      ],
+      "expect_tool_any": [
+        "grep_docs"
+      ],
+      "expect_success": true,
+      "is_gap": true
+    },
+    {
+      "id": "T9",
+      "category": "gap-知识库未覆盖",
+      "question": "公司报销流程的审批层级是怎样的？",
+      "gold_answer_contains": [
+        "未覆盖",
+        "没有",
+        "不在"
+      ],
+      "expect_tool_any": [
+        "grep_docs"
+      ],
+      "expect_success": true,
+      "is_gap": true
+    },
+    {
+      "id": "T10",
+      "category": "多跳-指标+来源",
+      "question": "复购率怎么算？数据来自哪张表？统计周期是什么？",
+      "gold_answer_contains": [
+        "dws_user_repurchase_m",
+        "月",
+        "购买"
+      ],
+      "expect_tool_any": [
+        "grep_docs",
+        "read_section"
+      ],
+      "expect_success": true
+    }
+  ]
+}
