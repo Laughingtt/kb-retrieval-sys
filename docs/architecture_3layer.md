@@ -19,12 +19,12 @@
 
 ```mermaid
 flowchart TD
-    U[业务人员] --> UI["L3 Open WebUI:8081 已部署"]
+    U[业务人员] --> UI["L3 Open WebUI:8081 ⏳ M6 待接入"]
 
-    UI -->|OpenAI 兼容 /v1/chat/completions| AG["L2 Python Agent 服务openai SDK + FastAPI 待建"]
+    UI -->|OpenAI 兼容 /v1/chat/completions| AG["L2 Python Agent 服务openai SDK + FastAPI ✅ M5"]
 
     AG -->|1. 拆解问题| AG
-    AG -->|2. 检索编排多次/多跳| KB["L1 KB Service检索 API 待建"]
+    AG -->|2. 检索编排多次/多跳| KB["L1 KB Service检索 API ✅ M4"]
     KB -->|返回准确知识片段+来源| AG
     AG -->|3. 自评不达标→重检| KB
     AG -->|4. 总结生成| GW["LLM 端点OpenAI 兼容可配置"]

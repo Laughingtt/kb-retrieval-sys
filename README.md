@@ -19,7 +19,7 @@
 - L2 → L1：只读 REST API（`/categories` `/documents` `/search` `/documents/{id}` `/index` `/health`），**无写入/执行端点**
 - L2 → LLM：OpenAI 兼容端点（可配置 base URL / key / model）
 
-本仓库当前只交付 **L1 层**。L1 既是离线摄入 pipeline（写 md/wiki/index），也是在线只读检索来源；L2/L3 尚未开始。
+本仓库已交付 **L1 层**（离线摄入 pipeline + 在线只读检索）与 **L2 Agent 层**（多跳检索 + 自评重试 + OpenAI 兼容端点）。L3 交互层（Open WebUI）待 M6。
 
 ---
 
@@ -37,27 +37,42 @@
 
 ```
 kb-retrieval-sys/
-├── l1_kb/
+├── l1_kb/                         # L1 知识库层（摄入 + 检索底座）
 │   ├── ingest/
-│   │   ├── cleaners/          # PDF/Word/Excel/MD 四类清洗器 + dispatcher
-│   │   ├── section_splitter.py# 按标题切 section（检索/索引/加载单元）
-│   │   ├── doc_id.py          # slug + sha256[:8]，不含 category（稳定身份）
-│   │   ├── safe_path.py       # 路径越界校验
-│   │   ├── clean.py           # 编排：raw → md/ + sections
-│   │   ├── wiki/              # M2：md → LLM 两步归纳 → wiki/{sources,entities,concepts,process}
-│   │   └── incremental/       # M3：hash.json 变更检测 + 三态增量 + ingest_log
-│   ├── retrieval/             # BM25 + RRF + snippet
-│   ├── lint/                  # 五项确定性自检（L1_FORMAT…L5_GAP）
-│   ├── cli/kb.py              # CLI 入口
-│   ├── service/               # M4 只读 REST API（FastAPI，6 GET 端点）
+│   │   ├── cleaners/              # PDF/Word/Excel/MD 四类清洗器 + dispatcher
+│   │   ├── section_splitter.py    # 按标题切 section（检索/索引/加载单元）
+│   │   ├── doc_id.py              # slug + sha256[:8]，不含 category（稳定身份）
+│   │   ├── safe_path.py           # 路径越界校验
+│   │   ├── clean.py               # 编排：raw → md/ + sections
+│   │   ├── wiki/                  # M2：md → LLM 两步归纳 → wiki/{sources,entities,concepts,process}
+│   │   └── incremental/           # M3：hash.json 变更检测 + 三态增量 + ingest_log
+│   ├── retrieval/                 # BM25 + RRF + snippet
+│   ├── lint/                      # 五项确定性自检（L1_FORMAT…L5_GAP）
+│   ├── cli/kb.py                  # CLI 入口（clean/ingest/search/index/lint/rebuild）
+│   ├── service/                   # M4 只读 REST API（FastAPI，6 GET 端点）
 │   └── knowledge_base/
-│       ├── raw/               # 原件（入库，分类子目录）
-│       ├── md/                # 清洗产物（.gitignore）
-│       ├── wiki/              # 知识 wiki（.gitignore）
-│       ├── page_types.yaml    # 页类型配置（单一事实源，驱动全链路）
-│       └── .cache/            # hash.json + ingest-cache.json（.gitignore）
-├── tests/                     # 单测（mock LLM）+ e2e（真 key）
-└── pyproject.toml             # uv 管理
+│       ├── raw/                   # 原件（入库，分类子目录，仓库自带 5 份合成样本）
+│       ├── md/                    # 清洗产物（.gitignore）
+│       ├── wiki/                  # 知识 wiki（.gitignore）
+│       ├── page_types.yaml        # 页类型配置（单一事实源，驱动全链路）
+│       └── .cache/                # hash.json + ingest-cache.json（.gitignore）
+├── l2_agent/                      # L2 Python Agent 层（薄封装 L1 REST）
+│   ├── agent.py                   # AgentLoop：openai SDK 工具循环 + 自评重试
+│   ├── tools.py                   # 5 只读工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）
+│   ├── l1_client.py               # L1 REST 客户端
+│   ├── prompts.py                 # 系统提示词
+│   ├── server.py                  # FastAPI OpenAI 兼容端点（8012）
+│   ├── config.py                  # env 配置（L1_BASE_URL/LLM_*/MAX_TURNS）
+│   └── tests/                     # 自包含单测（mock LLM）+ e2e（真 key）
+├── kb_eval/                       # 评估套件（直调 AgentLoop，捕获工具 trace）
+│   ├── cases.json                 # 10 用例（单跳/多跳/gap）
+│   ├── run_eval.py                # 跑评估 → results.json
+│   ├── report.md                  # 人类可读完整报告（10/10 通过）
+│   ├── make_wide_xlsx.py          # 造宽表样本
+│   └── raw/                       # 7 份合成评估文档
+├── docs/                          # 设计文档 + 里程碑设计稿
+├── tests/                         # L1 单测（mock LLM）+ e2e（真 key）
+└── pyproject.toml                 # uv 管理（双包 l1_kb + l2_agent）
 ```
 
 ---
@@ -543,8 +558,8 @@ export LLM_MODEL=deepseek-v4-flash
 ## 测试
 
 ```bash
-# 全量单测（mock LLM，无需 key）
-.venv/bin/python -m pytest tests/ -q
+# 全量单测（mock LLM，无需 key；含 l1_kb/tests + l2_agent/tests）
+.venv/bin/python -m pytest -q
 
 # 只跑 M3 增量相关
 .venv/bin/python -m pytest tests/test_hash_store.py tests/test_change_detect.py \
@@ -555,13 +570,13 @@ export LLM_MODEL=deepseek-v4-flash
 DEEPSEEK_API_KEY=sk-xxxxx .venv/bin/python -m pytest tests/test_m3_incremental_e2e.py -v
 ```
 
-策略：单测一律 mock LLM（`monkeypatch.delenv` 掉 key）；e2e 用真 key 跑通 add→modify→delete→lint→search 全链。**真 key 绝不写进任何文件**。
+策略：单测一律 mock LLM（`monkeypatch.delenv` 掉 key）；e2e 用真 key 跑通 add→modify→delete→lint→search 全链。**真 key 绝不写进任何文件**。L2 单测在 `l2_agent/tests/`，e2e 用真 key 跑通多跳取全 + 带引用返回（见 [评估章节](#评估kb_eval)）。
 
 ---
 
 ## L1 只读 REST API（M4）
 
-把 L1 的检索能力封装成只读 REST 服务（FastAPI），供 L2 pi Agent 调用。**全 GET，只读，无写入/执行端点**（硬约束 2）。
+把 L1 的检索能力封装成只读 REST 服务（FastAPI），供 L2 Python Agent 调用。**全 GET，只读，无写入/执行端点**（硬约束 2）。
 
 启动：
 
@@ -592,26 +607,21 @@ kb-serve
 
 ---
 
-## 后续计划
-
-按 [PRD](docs/superpowers/specs/) 里程碑推进：
-
-| 里程碑 | 内容 | 状态 |
-| --- | --- | --- |
-| **M1** | 清洗 pipeline（PDF/Word/Excel/MD → MD → section 切分） | ✅ 完成 |
-| **M2** | wiki 归纳层（LLM 两步归纳 + ingest-cache + BM25 检索） | ✅ 完成 |
-| **M3** | 增量摄入与自更新闭环（hash.json 三态 + ingest_log + lint + rebuild） | ✅ 完成 |
-| **M4** | L1 只读 REST API（`/categories` `/documents` `/search` `/documents/{id}` `/index` `/health`） | ✅ 完成 |
-| **M5** | L2 Python Agent（5 工具循环 + 自评重试 + OpenAI 兼容端点） | ✅ 完成 |
-| **M6** | L3 Open WebUI 集成（流式 + 引用渲染） | ⏳ |
-
-**M5 要点**：在 M4 只读 REST 之上构建 L2 Python Agent —— 5 工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）薄封装 L1 API，Agent 自主多跳 + 自评重试，暴露 OpenAI 兼容端点供 L3 调用。L1→L2 契约已由 M4 固化（6 个只读 GET 端点）。
-
----
-
 ## L2 Agent 层（M5）
 
 L2 是基于 `openai` SDK 工具循环 + FastAPI 的 Python Agent 服务，薄封装 L1 只读 REST API，对外暴露 **OpenAI 兼容**端点，L3（Open WebUI）可直接当模型接入。
+
+### 5 个只读工具
+
+| 工具 | 对应 L1 端点 | 作用 |
+| --- | --- | --- |
+| `list_categories` | GET `/categories` | 摸库：类型清单与各页数 |
+| `list_documents` | GET `/documents` | 列出某类型下文档摘要（分页） |
+| `grep_docs` | GET `/search` | BM25 关键词检索（主力检索工具） |
+| `read_section` | GET `/documents/{slug}` | 精读某文档某 section 取字段/口径 |
+| `grade_relevance` | （本地，不调 L1） | 自评：检索是否充分，决定收敛重试 |
+
+均为 L1 GET 端点的薄封装，无写入/执行能力（守护 grep 见 M5 验收）。Agent 自主多跳 + 自评重试，到 `sufficient=true` 后带引用总结返回。
 
 ### 启动
 
@@ -620,7 +630,7 @@ L2 是基于 `openai` SDK 工具循环 + FastAPI 的 Python Agent 服务，薄�
 .venv/bin/kb-serve &
 
 # 2. 注入 LLM key（DeepSeek，或任意 OpenAI 兼容端点）
-export LLM_API_KEY="$DEEPSEEK_API_KEY"   # 或 bash -lic 'echo $LLM_API_KEY'
+export LLM_API_KEY="$DEEPSEEK_API_KEY"
 export LLM_BASE_URL=https://api.deepseek.com/v1
 export LLM_MODEL=deepseek-chat
 export L1_BASE_URL=http://127.0.0.1:8011
@@ -637,6 +647,16 @@ export L1_BASE_URL=http://127.0.0.1:8011
 | GET | `/v1/models` | 返回模型名 `kb-agent` |
 | POST | `/v1/chat/completions` | OpenAI 兼容（含 stream 流式） |
 
+### 配置（env）
+
+| env | 默认 | 说明 |
+| --- | --- | --- |
+| `L1_BASE_URL` | `http://127.0.0.1:8011` | L1 REST 服务地址 |
+| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | LLM OpenAI 兼容端点 |
+| `LLM_API_KEY` | （空） | LLM key |
+| `LLM_MODEL` | `deepseek-v4-flash` | 模型名 |
+| `MAX_TURNS` | `10` | 工具循环最大轮数 |
+
 ### L3（Open WebUI）接入
 
 在 Open WebUI 添加一个 OpenAI 兼容连接：
@@ -647,7 +667,60 @@ export L1_BASE_URL=http://127.0.0.1:8011
 
 用户提问后，L2 Agent 会自主多跳检索 L1、自评重试、带引用总结返回。
 
-> 工具边界严格只读：5 个工具均为 L1 GET 端点的薄封装，无写入/执行能力（守护 grep 见 M5 验收）。
+> L1→L2 契约已由 M4 固化（6 个只读 GET 端点）；检索机制对 L2 透明，未来 L1 换混合检索 L2 无感。
+
+---
+
+## 评估（kb_eval）
+
+`kb_eval/` 是面向 L2 Agent 的端到端评估套件：直接调用 `AgentLoop.run()`，捕获每次查询的工具调用 trace，按 gold 关键词 + 期望工具判定成败。**不依赖 L2 服务进程，仅用 AgentLoop 直调 + 已起的 L1 服务。**
+
+最新结果（详见 [kb_eval/report.md](kb_eval/report.md)）：
+
+| 指标 | 结果 |
+| --- | --- |
+| 用例总数 | 10（单跳 4 · 多跳 4 · gap 未覆盖 2） |
+| 通过数 | **10** |
+| 成功率 | **100%** |
+| 平均工具调用 | 9.7 次/题 |
+| 平均耗时 | 14.2 秒/题 |
+
+覆盖字段查询、口径查询、流程编号、跨文档多跳、字段关联、宽表分组、指标溯源、知识库未覆盖 gap 标注等典型场景。每题以 `grade_relevance` 收敛门判定 `sufficient` 后收尾，答案均带 `[doc_id §section]` 引用。
+
+### 可复现
+
+```bash
+# 1. 造数据（已就绪于 kb_eval/raw/）
+.venv/bin/python kb_eval/make_wide_xlsx.py
+
+# 2. 清洗 → 归纳 → 索引 → lint（指向 kb_eval）
+.venv/bin/kb clean  kb_eval/raw --md-root kb_eval/md
+.venv/bin/kb ingest kb_eval/raw --md-root kb_eval/md --wiki-root kb_eval/wiki   # 真实 DeepSeek
+.venv/bin/kb index  --wiki-root kb_eval/wiki
+.venv/bin/kb lint   --wiki-root kb_eval/wiki
+
+# 3. 起 L1（指向 kb_eval wiki）
+WIKI_ROOT=kb_eval/wiki .venv/bin/kb-serve &
+
+# 4. 跑评估（直接调 AgentLoop，捕获 trace）
+LLM_API_KEY=$DEEPSEEK_API_KEY .venv/bin/python kb_eval/run_eval.py
+# → kb_eval/results.json（机读，含每题完整 trace+answer）
+```
+
+产物：`kb_eval/cases.json`（用例集）｜`kb_eval/results.json`（机读结果，.gitignore）｜`kb_eval/report.md`（人类可读报告）｜`kb_eval/raw/`（7 份合成文档）。
+
+---
+
+## 后续计划
+
+| 里程碑 | 内容 | 状态 |
+| --- | --- | --- |
+| **M1** | 清洗 pipeline（PDF/Word/Excel/MD → MD → section 切分） | ✅ 完成 |
+| **M2** | wiki 归纳层（LLM 两步归纳 + ingest-cache + BM25 检索） | ✅ 完成 |
+| **M3** | 增量摄入与自更新闭环（hash.json 三态 + ingest_log + lint + rebuild） | ✅ 完成 |
+| **M4** | L1 只读 REST API（6 GET 端点） | ✅ 完成 |
+| **M5** | L2 Python Agent（5 工具循环 + 自评重试 + OpenAI 兼容端点） | ✅ 完成 |
+| **M6** | L3 Open WebUI 集成（流式 + 引用渲染） | ⏳ 待开始 |
 
 ---
 
