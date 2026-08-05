@@ -10,8 +10,8 @@
 
 | 层 | 职责 | 技术 | 状态 |
 | --- | --- | --- | --- |
-| **L1 知识库层** | PDF→MD 清洗 + wiki 归纳 + 增量摄入 + BM25 检索 + 自检/重建 | Python / Click / OpenAI 兼容 LLM | ✅ 已完成（M1–M3） |
-| **L2 Agent 层** | 多跳检索编排、自评重试、带引用总结；OpenAI 兼容端点 | TypeScript / pi | ⏳ 待开始（M5） |
+| **L1 知识库层** | PDF→MD 清洗 + wiki 归纳 + 增量摄入 + BM25 检索 + 自检/重建 + 只读 REST API | Python / Click / OpenAI 兼容 LLM / FastAPI | ✅ 已完成（M1–M4） |
+| **L2 Agent 层** | 多跳检索编排、自评重试、带引用总结；OpenAI 兼容端点 | Python（openai SDK + FastAPI） | ✅ 已完成（M5） |
 | **L3 交互层** | 对话提问、展示带来源引用的答案 | Open WebUI | ⏳ 待开始（M6） |
 
 **层间契约**（稳定）：
@@ -49,11 +49,12 @@ kb-retrieval-sys/
 │   ├── retrieval/             # BM25 + RRF + snippet
 │   ├── lint/                  # 五项确定性自检（L1_FORMAT…L5_GAP）
 │   ├── cli/kb.py              # CLI 入口
-│   ├── service/               # M4 只读 REST API（待实现）
+│   ├── service/               # M4 只读 REST API（FastAPI，6 GET 端点）
 │   └── knowledge_base/
 │       ├── raw/               # 原件（入库，分类子目录）
 │       ├── md/                # 清洗产物（.gitignore）
 │       ├── wiki/              # 知识 wiki（.gitignore）
+│       ├── page_types.yaml    # 页类型配置（单一事实源，驱动全链路）
 │       └── .cache/            # hash.json + ingest-cache.json（.gitignore）
 ├── tests/                     # 单测（mock LLM）+ e2e（真 key）
 └── pyproject.toml             # uv 管理
@@ -90,7 +91,7 @@ which pandoc || echo "pandoc 未装，.docx 将跳过"
 
 L1 的 **wiki 归纳**（M2）调 LLM 把 md → 知识页。无 key 时自动走**确定性 fallback**（只写 source 页，跳过 entity/concept/process 归纳），检索仍可用但召回较粗。
 
-默认接 DeepSeek（公司内部可换任意 OpenAI 兼容端点）。全部走 env，**不写进任何文件**：
+默认接 DeepSeek（公司内部可换任意 OpenAI 兼容端点）。**运行时参数与路径走 env，不写进任何文件**；领域配置（页类型）走 YAML（见下节「页类型配置」）。
 
 | env | 默认 | 说明 |
 | --- | --- | --- |
@@ -105,6 +106,50 @@ L1 的 **wiki 归纳**（M2）调 LLM 把 md → 知识页。无 key 时自动�
 export LLM_API_KEY=sk-xxxxx
 export LLM_MODEL=deepseek-v4-flash
 ```
+
+---
+
+## 页类型配置（page_types.yaml）
+
+wiki 的页类型（source/entity/concept/process）是**领域配置**，不是硬编码：单一事实源 `l1_kb/knowledge_base/page_types.yaml` 驱动全链路——提示词、`page_types` 派生、`index.md` 渲染、REST API、lint 检查全部从它读取。**加第 N 类只改 YAML，不改代码**，全链路自动生效（当前文档覆盖数据/制度/产品三类，后续会扩展，故外化）。
+
+各字段含义：
+
+| 字段 | 说明 |
+| --- | --- |
+| `key` | 类型键（frontmatter `type` 值，合法 slug `[a-z0-9_]`） |
+| `dir` | 落盘目录名（`wiki/{dir}/{slug}.md`） |
+| `label` | 中文展示名（`index.md` 段标题，人类可读） |
+| `description` | 描述（注入 step1/step2 提示词的类型清单） |
+| `mandatory` | 是否必产；全表**恰好 1 个** `mandatory: true` |
+| `orphan_exempt` | L3 孤儿检查豁免（source 摘要页不报孤儿） |
+| `xref_check` | 是否参与 L4 标签交叉引用检查 |
+| `plural_key` | step1 分析 JSON 的数组键名（mandatory 类型留空，恒 1 张） |
+| `dir_aliases` | 容忍的 LLM 漂移目录别名（归一化到 `dir`） |
+| `schema_template` | step1 数组元素的字段模板（JSON 片段字符串，可空） |
+
+校验规则（fail loud，见 `l1_kb/ingest/wiki/page_type_config.py`）：类型非空、key/dir/plural_key 唯一且合法 slug、恰好 1 个 mandatory、`dir_aliases` 不与真实 dir 冲突。文件缺失/损坏 → 硬编码兜底 4 类（warn，不抛，保证开箱即用）。
+
+配置路径可被 env 覆盖（用于切换不同知识库域 / 测试）：
+
+| env | 默认 | 说明 |
+| --- | --- | --- |
+| `KB_PAGE_TYPES_PATH` | `l1_kb/knowledge_base/page_types.yaml` | 页类型配置文件路径 |
+
+加第 5 类示例（如「制度」policy）——在 `types` 追加一项即可：
+
+```yaml
+types:
+  # ... 既有 source/entity/concept/process ...
+  - key: policy
+    dir: policies
+    label: 制度
+    description: 制度条文
+    plural_key: policies
+    xref_check: true
+```
+
+保存后无需改任何代码：提示词自动含 policy 描述与 `wiki/policies/` 路径、`index.md` 渲染 `## 制度` 段、`/documents?type=policy` 合法（不 422）、lint L4 检查覆盖 policy。
 
 ---
 
@@ -277,51 +322,42 @@ order_detail.xlsx ──clean──► order_detail__*.md ──ingest(LLM)─�
 
 ### 3️⃣ `kb search`：BM25 检索 wiki
 
-入口 `cli/kb.py:search` → `retrieval/`。纯内存，每次运行即时扫 wiki 重建索引（P0 阶段语料小，够用）。
+入口 `cli/kb.py:search` → `service/search.py`（M4 起 CLI 与 REST 共用同一检索层，DRY）。纯内存，每次运行即时扫 wiki 重建索引（P0 阶段语料小，够用）。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ kb search "<query>" [--top-k N]                                          │
 └─────────────────────────────────────────────────────────────────────────┘
         │
-        ▼ ① _wiki_entries(wiki_root)
+        ▼ ① store.load_store(config.WIKI_ROOT)
         │   扫 wiki/**/*.md (跳过 index/log/overview)
-        │   每页: 解析 frontmatter(title) + 复用 section_splitter 切 section
-        │   每个 section → 1 个 entry:
-        │     {slug, section_id, title="页title / section标题",
-        │      body_text=该 section 行范围原文, _text=整页原文, _line_start/end}
+        │   每页: 解析 frontmatter(type/title/updated) + split_sections 切 section
+        │   body 经 _truncate(text, max_chars=2000) → 超 2000 字截断 + …[截断] 标记
+        │   → WikiStore(pages, by_slug, by_type)
         │
-        ▼ ② BM25Retriever(entries)
-        │   corpus[i] = tokenize(title + body_text)   ← jieba 分词
-        │   bm25 = BM25Okapi(corpus)                  ← rank-bm25 (真BM25: IDF+长度归一)
+        ▼ ② search.search(store, query, top_k=N)
+        │   每个 section → entry {slug, section_id, title, body_text, ...}
+        │   BM25Retriever(entries): tokenize(title+body_text) ← jieba 分词
+        │   bm25 = BM25Okapi(corpus)                          ← rank-bm25
+        │   hits = bm25.search(query, top_n=50)               ← 过滤词频命中防误召回
+        │   fused = RRFFuser().fuse([hits], k=60, top_k=N)    ← 单路 RRF 直通 (P0)
+        │   snippet = make_snippet(整页原文, line_start, line_end, max_chars=500)
+        │   → list[SearchHit(doc_id=slug, section_id, title, snippet, score, source)]
         │
-        ▼ ③ bm25.search(query, top_n=50)
-        │   q_tokens = tokenize(query)
-        │   scores = bm25.get_scores(q_tokens)        ← 每文档打分
-        │   排序取 top50
-        │   过滤: 该文档对查询词项须有词频命中 (防 IDF=0/负的误召回)
-        │   → list[SearchHit(doc_id=slug, section_id, title, score, source="bm25")]
-        │
-        ▼ ④ RRFFuser().fuse([hits], k=60, top_k=N)
-        │   单路 RRF 直通 (P0 无向量, 预留多路融合接口)
-        │   → 截断到 top_k
-        │
-        ▼ ⑤ 逐 hit 渲染
-        │   回查 entries 找原文 → snippet.make_snippet(整页原文, line_start, line_end)
-        │     按 section 行号范围切 ≤500 字符
+        ▼ ③ 逐 hit 渲染
         │   打印:
-        │     [#1] score=0.8421  {slug} / {section_id}
-        │          {snippet 前3行}
-        │          [sources]      ← frontmatter type
+        │     [0.8421]  data_table_order_detail__a3f9c1e2 / s1 — 订单表
+        │         {snippet 行，4 空格缩进}
         │
         ▼
-  无命中 → "(无结果)"
+  无命中 → "无结果"
   产物: 仅终端输出 (search 是只读, 不写任何文件)
 ```
 
 **关键设计**：
 - **检索单元 = section**：与 ingest 的 section 切分复用同一 `section_splitter`，保证「检索/索引/加载」三层一致（PRD §6.3）。
-- **纯内存重建**：不持久化倒排索引，P0 语料小（~1000 doc）秒级重建。M4 起对外提供 REST 时仍走此路径。
+- **纯内存重建**：不持久化倒排索引，P0 语料小（~1000 doc）秒级重建。M4 的 REST `/search` 走同一 `service.search` 路径。
+- **CLI 与 REST 共用检索层（M4 DRY）**：`kb search` 与 `/search` 端点都调用 `service.store.load_store` + `service.search.search`，无重复逻辑。
 - **对 L2 透明**：检索机制现为 BM25，未来可换混合检索（+向量），但 `/search` 端点契约不变。
 
 ---
@@ -420,13 +456,12 @@ raw/process/policy.md              # Markdown 流程制度
 
 输出示例：
 ```
-[#1] score=0.8421  data_table_order_detail__a3f9c1e2 / s1
-     | order_id | customer |
-     | O1       | 张三     |
-     [sources]
+[0.8421] data_table_order_detail__a3f9c1e2 / s1 — 订单表
+    | order_id | customer |
+    | O1       | 张三     |
 ```
 
-> 当前检索机制对 L2 透明：`/search` 现为 BM25，未来可换混合检索，但端点契约不变。
+> 当前检索机制对 L2 透明：`/search` 现为 BM25，未来可换混合检索，但端点契约不变。CLI 与 REST 共用同一 `service.search` 检索层（M4 DRY）。
 
 ### 4. 重建索引页：`kb index`（确定性）
 
@@ -524,6 +559,39 @@ DEEPSEEK_API_KEY=sk-xxxxx .venv/bin/python -m pytest tests/test_m3_incremental_e
 
 ---
 
+## L1 只读 REST API（M4）
+
+把 L1 的检索能力封装成只读 REST 服务（FastAPI），供 L2 pi Agent 调用。**全 GET，只读，无写入/执行端点**（硬约束 2）。
+
+启动：
+
+```bash
+.venv/bin/python -m uvicorn l1_kb.service.app:app --port 8011
+# 或装入口后
+kb-serve
+```
+
+端点（全 GET，只读，无写/执行）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/health` | 健康检查 + wiki 页数 + wiki_root + last_updated |
+| GET | `/categories` | 类型统计（source/entity/concept/process 各几页，含 count=0） |
+| GET | `/documents?type=&page=&page_size=` | 文档摘要分页（返回 {items,page,page_size,total}；items 含 slug/type/title/section_count/updated，不含正文；非法 type → 422） |
+| GET | `/documents/{slug}` | 单文档详情（含 slug/type/title/updated/sections；未知 slug / 路径穿越 → 404） |
+| GET | `/index` | 索引条目（扁平 entries 列表，每项 type/title/slug；index.md 缺失则回退派生） |
+| GET | `/search?q=&top_k=` | BM25 检索（返回 query/total/hits；空 q → 400；snippet ≤500 字，body ≤2000 字 + 截断标记） |
+
+参数约束：`page≥1`（默认 1）、`page_size` 1-200（默认 50）、`top_k` 1-50（默认 10），越界由 Pydantic 返回 422。
+
+环境变量：`WIKI_ROOT`（覆盖默认 wiki 目录；与 CLI 的 `kb search` 一致）。
+
+架构（方案 A，DRY）：`service/store.py`（`load_store` 读 wiki → WikiStore）+ `service/search.py`（BM25+RRF+snippet）+ `service/app.py`（FastAPI 6 路由 + Pydantic 出口模型）。CLI 的 `kb search` 与 REST 的 `/search` 调用同一检索层，不重复逻辑。每请求 `load_store` 重建，无缓存（P0 语料小，够用）。
+
+> 检索机制对 L2 透明：`/search` 现为 BM25，未来可换混合检索（+向量），但端点契约不变。
+
+---
+
 ## 后续计划
 
 按 [PRD](docs/superpowers/specs/) 里程碑推进：
@@ -533,11 +601,55 @@ DEEPSEEK_API_KEY=sk-xxxxx .venv/bin/python -m pytest tests/test_m3_incremental_e
 | **M1** | 清洗 pipeline（PDF/Word/Excel/MD → MD → section 切分） | ✅ 完成 |
 | **M2** | wiki 归纳层（LLM 两步归纳 + ingest-cache + BM25 检索） | ✅ 完成 |
 | **M3** | 增量摄入与自更新闭环（hash.json 三态 + ingest_log + lint + rebuild） | ✅ 完成 |
-| **M4** | L1 只读 REST API（`/categories` `/documents` `/search` `/documents/{id}` `/index` `/health`） | ⏳ 下一步 |
-| **M5** | L2 pi Agent（5 工具循环 + 自评重试 + OpenAI 兼容端点） | ⏳ |
+| **M4** | L1 只读 REST API（`/categories` `/documents` `/search` `/documents/{id}` `/index` `/health`） | ✅ 完成 |
+| **M5** | L2 Python Agent（5 工具循环 + 自评重试 + OpenAI 兼容端点） | ✅ 完成 |
 | **M6** | L3 Open WebUI 集成（流式 + 引用渲染） | ⏳ |
 
-**M4 要点**：把 L1 的检索能力封装成只读 REST 服务（FastAPI），无写入/执行端点，供 L2 pi Agent 调用。检索机制对 L2 透明（现为 BM25，未来可换混合检索，端点契约不变）。
+**M5 要点**：在 M4 只读 REST 之上构建 L2 Python Agent —— 5 工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）薄封装 L1 API，Agent 自主多跳 + 自评重试，暴露 OpenAI 兼容端点供 L3 调用。L1→L2 契约已由 M4 固化（6 个只读 GET 端点）。
+
+---
+
+## L2 Agent 层（M5）
+
+L2 是基于 `openai` SDK 工具循环 + FastAPI 的 Python Agent 服务，薄封装 L1 只读 REST API，对外暴露 **OpenAI 兼容**端点，L3（Open WebUI）可直接当模型接入。
+
+### 启动
+
+```bash
+# 1. 先起 L1（默认 8011，指向 l1_kb/knowledge_base/wiki）
+.venv/bin/kb-serve &
+
+# 2. 注入 LLM key（DeepSeek，或任意 OpenAI 兼容端点）
+export LLM_API_KEY="$DEEPSEEK_API_KEY"   # 或 bash -lic 'echo $LLM_API_KEY'
+export LLM_BASE_URL=https://api.deepseek.com/v1
+export LLM_MODEL=deepseek-chat
+export L1_BASE_URL=http://127.0.0.1:8011
+
+# 3. 起 L2（默认 8012）
+.venv/bin/kb-agent-serve
+```
+
+### 端点
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/health` | 健康检查 |
+| GET | `/v1/models` | 返回模型名 `kb-agent` |
+| POST | `/v1/chat/completions` | OpenAI 兼容（含 stream 流式） |
+
+### L3（Open WebUI）接入
+
+在 Open WebUI 添加一个 OpenAI 兼容连接：
+
+- **Base URL**：`http://<l2-host>:8012/v1`
+- **模型名**：`kb-agent`
+- **API Key**：任意（L2 不校验）
+
+用户提问后，L2 Agent 会自主多跳检索 L1、自评重试、带引用总结返回。
+
+> 工具边界严格只读：5 个工具均为 L1 GET 端点的薄封装，无写入/执行能力（守护 grep 见 M5 验收）。
+
+---
 
 **已明确砍掉**：`kb watch` 常驻监听（M3 改手动 loop）；向量检索（P0 阶段先用 BM25，够用再上）。
 

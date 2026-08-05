@@ -23,10 +23,6 @@ from ..ingest.cleaners.dispatcher import SUPPORTED_EXTS
 from ..ingest.wiki import ingest as wiki_ingest
 from ..ingest.wiki.index_log import rebuild_index
 from ..ingest.wiki.ingest import ingest_source, make_client_from_config, read_index_md
-from ..ingest.section_splitter import split as split_sections
-from ..retrieval.bm25 import BM25Retriever
-from ..retrieval.base import RRFFuser
-from ..retrieval.snippet import make_snippet
 from ..ingest.incremental import ingest_flow, change_detect, delete as incr_delete
 from ..ingest.incremental import hash_store, ingest_log
 from ..ingest.lint import checker as lint_checker, report as lint_report
@@ -116,34 +112,6 @@ def clean(path: Path, md_root: Path, raw_root: Path, dry_run: bool) -> None:
     )
     if failed:
         sys.exit(1)
-
-
-def _wiki_entries(wiki_root: Path) -> list[dict]:
-    """扫描 wiki/*.md → section entries（复用 M1 splitter）。"""
-    entries = []
-    if not wiki_root.exists():
-        return entries
-    for p in sorted(wiki_root.rglob("*.md")):
-        if p.stem in ("index", "log", "overview"):
-            continue
-        text = p.read_text(encoding="utf-8")
-        # 解析 frontmatter 取 title
-        from ..ingest.wiki.frontmatter import parse as parse_fm
-        fm, body = parse_fm(text)
-        full = (fm.title + "\n\n" + body) if fm.title else body
-        for s in split_sections(full):
-            seg_lines = full.splitlines()
-            body_text = "\n".join(seg_lines[s.line_start - 1 : s.line_end])
-            entries.append({
-                "slug": p.stem,
-                "section_id": s.section_id,
-                "title": f"{fm.title} / {s.title}" if s.title else fm.title,
-                "body_text": body_text,
-                "_line_start": s.line_start,
-                "_line_end": s.line_end,
-                "_text": text,
-            })
-    return entries
 
 
 @cli.command()
@@ -242,29 +210,21 @@ def lint(wiki_root, raw_root, md_root, cache_path, hash_path, log_path, out_path
 
 @cli.command()
 @click.argument("query")
-@click.option("--wiki-root", "wiki_root", type=click.Path(path_type=Path), default=DEFAULT_WIKI)
-@click.option("--top-k", default=10, help="返回条数。")
-def search(query: str, wiki_root: Path, top_k: int) -> None:
-    """BM25 检索 wiki 页（RRF 单路直通）。"""
-    wiki_root = wiki_root.resolve()
-    entries = _wiki_entries(wiki_root)
-    bm25 = BM25Retriever([
-        {"slug": e["slug"], "section_id": e["section_id"], "title": e["title"], "body_text": e["body_text"]}
-        for e in entries
-    ])
-    hits = bm25.search(query, top_n=50)
-    fused = RRFFuser().fuse([hits], k=60, top_k=top_k)
-    if not fused:
-        click.echo("(无结果)")
+@click.option("--top-k", default=10, show_default=True, type=int)
+def search(query, top_k):
+    """BM25 检索 wiki 知识页。"""
+    from l1_kb.service.store import load_store
+    from l1_kb.service.search import search as svc_search
+    store = load_store(config.WIKI_ROOT)
+    hits = svc_search(store, query, top_k=top_k)
+    if not hits:
+        click.echo("无结果")
         return
-    for i, h in enumerate(fused, 1):
-        # 填 snippet：找对应 entry 的原文
-        e = next((x for x in entries if x["slug"] == h.doc_id and x["section_id"] == h.section_id), None)
-        snippet = make_snippet(e["_text"], e["_line_start"], e["_line_end"]) if e else ""
-        click.secho(f"[#{i}] score={h.score:.4f}  {h.doc_id} / {h.section_id}", fg="green")
-        for line in snippet.splitlines()[:3]:
-            click.echo(f"     {line}")
-        click.echo(f"     [{h.source}]")
+    for h in hits:
+        click.echo(f"[{h.score:.4f}] {h.doc_id} / {h.section_id} — {h.title}")
+        if h.snippet:
+            for ln in h.snippet.splitlines():
+                click.echo(f"    {ln}")
 
 
 @cli.command()
