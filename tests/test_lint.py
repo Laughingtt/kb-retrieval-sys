@@ -1,9 +1,9 @@
 # tests/test_lint.py
 import json
 from pathlib import Path
-from l1_kb.ingest.lint import checker
-from l1_kb.ingest.wiki.index_log import rebuild_index
-from l1_kb.ingest.incremental import hash_store, ingest_log
+from kb_retrieval.kb.ingest.lint import checker
+from kb_retrieval.kb.ingest.wiki.index_log import rebuild_index
+from kb_retrieval.kb.ingest.incremental import hash_store, ingest_log
 
 def _seed_clean_wiki(tmp_path: Path):
     wiki = tmp_path / "wiki"
@@ -100,8 +100,8 @@ def test_report_counts(tmp_path: Path):
     assert rep.ts == "2026-08-03"
 
 def test_lint_report_write_and_summary(tmp_path):
-    from l1_kb.ingest.lint.report import write_report, format_summary, exit_code
-    from l1_kb.ingest.lint.checker import Issue, LintReport
+    from kb_retrieval.kb.ingest.lint.report import write_report, format_summary, exit_code
+    from kb_retrieval.kb.ingest.lint.checker import Issue, LintReport
     rep = LintReport(ts="2026-08-03", issues=[
         Issue("L2_GHOST", "error", "幽灵", page="entity_foo"),
         Issue("L3_ORPHAN", "warn", "孤儿", page="concept_bar"),

@@ -1,6 +1,6 @@
 import pytest
 
-from l1_kb.ingest.wiki.safe_path import is_safe_wiki_path
+from kb_retrieval.kb.ingest.wiki.safe_path import is_safe_wiki_path
 
 
 @pytest.mark.parametrize("path", [

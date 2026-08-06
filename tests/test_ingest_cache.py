@@ -1,4 +1,4 @@
-from l1_kb.ingest.wiki.ingest_cache import check_cache, save_cache, content_hash
+from kb_retrieval.kb.ingest.wiki.ingest_cache import check_cache, save_cache, content_hash
 
 
 def test_content_hash_stable():

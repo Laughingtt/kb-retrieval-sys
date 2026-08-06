@@ -1,5 +1,8 @@
 # kb-retrieval-sys
 
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+![Python](https://img.shields.io/badge/python-%E2%89%A53.12-blue)
+
 企业内部知识库检索系统 —— 把 ~1000 份 PDF / Word / Excel / Markdown 文档清洗成结构化 markdown，归纳成可检索的知识 wiki，对外提供只读检索 API（供后续 L2 Agent 调用）。
 
 > 设计文档：[docs/architecture_3layer.md](docs/architecture_3layer.md)（三层架构）、[docs/kb_retrieval_solutions.md](docs/kb_retrieval_solutions.md)（检索方案调研）、[docs/superpowers/specs/](docs/superpowers/specs/)（里程碑设计稿）。
@@ -37,33 +40,34 @@
 
 ```
 kb-retrieval-sys/
-├── l1_kb/                         # L1 知识库层（摄入 + 检索底座）
-│   ├── ingest/
-│   │   ├── cleaners/              # PDF/Word/Excel/MD 四类清洗器 + dispatcher
-│   │   ├── section_splitter.py    # 按标题切 section（检索/索引/加载单元）
-│   │   ├── doc_id.py              # slug + sha256[:8]，不含 category（稳定身份）
-│   │   ├── safe_path.py           # 路径越界校验
-│   │   ├── clean.py               # 编排：raw → md/ + sections
-│   │   ├── wiki/                  # M2：md → LLM 两步归纳 → wiki/{sources,entities,concepts,process}
-│   │   └── incremental/           # M3：hash.json 变更检测 + 三态增量 + ingest_log
-│   ├── retrieval/                 # BM25 + RRF + snippet
-│   ├── lint/                      # 五项确定性自检（L1_FORMAT…L5_GAP）
-│   ├── cli/kb.py                  # CLI 入口（clean/ingest/search/index/lint/rebuild）
-│   ├── service/                   # M4 只读 REST API（FastAPI，6 GET 端点）
-│   └── knowledge_base/
-│       ├── raw/                   # 原件（入库，分类子目录，仓库自带 5 份合成样本）
-│       ├── md/                    # 清洗产物（.gitignore）
-│       ├── wiki/                  # 知识 wiki（.gitignore）
-│       ├── page_types.yaml        # 页类型配置（单一事实源，驱动全链路）
-│       └── .cache/                # hash.json + ingest-cache.json（.gitignore）
-├── l2_agent/                      # L2 Python Agent 层（薄封装 L1 REST）
-│   ├── agent.py                   # AgentLoop：openai SDK 工具循环 + 自评重试
-│   ├── tools.py                   # 5 只读工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）
-│   ├── l1_client.py               # L1 REST 客户端
-│   ├── prompts.py                 # 系统提示词
-│   ├── server.py                  # FastAPI OpenAI 兼容端点（8012）
-│   ├── config.py                  # env 配置（L1_BASE_URL/LLM_*/MAX_TURNS）
-│   └── tests/                     # 自包含单测（mock LLM）+ e2e（真 key）
+├── kb_retrieval/                  # 单一顶层 import 包（取代 l1_kb + l2_agent）
+│   ├── kb/                        # 知识库层（原 l1_kb/，摄入 + 检索底座）
+│   │   ├── ingest/
+│   │   │   ├── cleaners/          # PDF/Word/Excel/MD 四类清洗器 + dispatcher
+│   │   │   ├── section_splitter.py # 按标题切 section（检索/索引/加载单元）
+│   │   │   ├── doc_id.py          # slug + sha256[:8]，不含 category（稳定身份）
+│   │   │   ├── safe_path.py       # 路径越界校验
+│   │   │   ├── clean.py           # 编排：raw → md/ + sections
+│   │   │   ├── wiki/              # M2：md → LLM 两步归纳 → wiki/{sources,entities,concepts,process}
+│   │   │   └── incremental/       # M3：hash.json 变更检测 + 三态增量 + ingest_log
+│   │   ├── retrieval/             # BM25 + RRF + snippet
+│   │   ├── lint/                  # 五项确定性自检（L1_FORMAT…L5_GAP）
+│   │   ├── cli/kb.py              # CLI 入口（clean/ingest/search/index/lint/rebuild）
+│   │   ├── service/               # M4 只读 REST API（FastAPI，6 GET 端点）
+│   │   └── knowledge_base/
+│   │       ├── raw/               # 原件（入库，分类子目录，仓库自带 5 份合成样本）
+│   │       ├── md/                # 清洗产物（.gitignore）
+│   │       ├── wiki/              # 知识 wiki（.gitignore）
+│   │       ├── page_types.yaml    # 页类型配置（单一事实源，驱动全链路）
+│   │       └── .cache/            # hash.json + ingest-cache.json（.gitignore）
+│   └── agent/                     # L2 Python Agent 层（薄封装 KB REST）
+│       ├── agent.py               # AgentLoop：openai SDK 工具循环 + 自评重试
+│       ├── tools.py               # 5 只读工具（list_categories/list_documents/grep_docs/read_section/grade_relevance）
+│       ├── kb_client.py           # KB REST 客户端
+│       ├── prompts.py             # 系统提示词
+│       ├── server.py              # FastAPI OpenAI 兼容端点（8012）
+│       ├── config.py              # env 配置（KB_BASE_URL/LLM_*/MAX_TURNS）
+│       └── tests/                 # 自包含单测（mock LLM）+ e2e（真 key）
 ├── kb_eval/                       # 评估套件（直调 AgentLoop，捕获工具 trace）
 │   ├── cases.json                 # 10 用例（单跳/多跳/gap）
 │   ├── run_eval.py                # 跑评估 → results.json
@@ -71,8 +75,12 @@ kb-retrieval-sys/
 │   ├── make_wide_xlsx.py          # 造宽表样本
 │   └── raw/                       # 7 份合成评估文档
 ├── docs/                          # 设计文档 + 里程碑设计稿
-├── tests/                         # L1 单测（mock LLM）+ e2e（真 key）
-└── pyproject.toml                 # uv 管理（双包 l1_kb + l2_agent）
+├── tests/                         # KB 单测（mock LLM）+ e2e（真 key）
+├── LICENSE                        # Apache-2.0
+├── CONTRIBUTING.md                # 贡献指南（硬约束 + GPL 红线 + 提交规范）
+├── SECURITY.md                    # 安全说明（真 key 绝不落盘 + 只读边界）
+├── CHANGELOG.md                   # 变更日志
+└── pyproject.toml                 # hatchling（单包 kb_retrieval）
 ```
 
 ---
@@ -96,7 +104,7 @@ which pandoc || echo "pandoc 未装，.docx 将跳过"
 验证安装：
 
 ```bash
-.venv/bin/python -m l1_kb.cli.kb --help
+.venv/bin/python -m kb_retrieval.kb.cli.kb --help
 # 或装入口后：kb --help
 ```
 
@@ -126,7 +134,7 @@ export LLM_MODEL=deepseek-v4-flash
 
 ## 页类型配置（page_types.yaml）
 
-wiki 的页类型（source/entity/concept/process）是**领域配置**，不是硬编码：单一事实源 `l1_kb/knowledge_base/page_types.yaml` 驱动全链路——提示词、`page_types` 派生、`index.md` 渲染、REST API、lint 检查全部从它读取。**加第 N 类只改 YAML，不改代码**，全链路自动生效（当前文档覆盖数据/制度/产品三类，后续会扩展，故外化）。
+wiki 的页类型（source/entity/concept/process）是**领域配置**，不是硬编码：单一事实源 `kb_retrieval/kb/knowledge_base/page_types.yaml` 驱动全链路——提示词、`page_types` 派生、`index.md` 渲染、REST API、lint 检查全部从它读取。**加第 N 类只改 YAML，不改代码**，全链路自动生效（当前文档覆盖数据/制度/产品三类，后续会扩展，故外化）。
 
 各字段含义：
 
@@ -143,13 +151,13 @@ wiki 的页类型（source/entity/concept/process）是**领域配置**，不是
 | `dir_aliases` | 容忍的 LLM 漂移目录别名（归一化到 `dir`） |
 | `schema_template` | step1 数组元素的字段模板（JSON 片段字符串，可空） |
 
-校验规则（fail loud，见 `l1_kb/ingest/wiki/page_type_config.py`）：类型非空、key/dir/plural_key 唯一且合法 slug、恰好 1 个 mandatory、`dir_aliases` 不与真实 dir 冲突。文件缺失/损坏 → 硬编码兜底 4 类（warn，不抛，保证开箱即用）。
+校验规则（fail loud，见 `kb_retrieval/kb/ingest/wiki/page_type_config.py`）：类型非空、key/dir/plural_key 唯一且合法 slug、恰好 1 个 mandatory、`dir_aliases` 不与真实 dir 冲突。文件缺失/损坏 → 硬编码兜底 4 类（warn，不抛，保证开箱即用）。
 
 配置路径可被 env 覆盖（用于切换不同知识库域 / 测试）：
 
 | env | 默认 | 说明 |
 | --- | --- | --- |
-| `KB_PAGE_TYPES_PATH` | `l1_kb/knowledge_base/page_types.yaml` | 页类型配置文件路径 |
+| `KB_PAGE_TYPES_PATH` | `kb_retrieval/kb/knowledge_base/page_types.yaml` | 页类型配置文件路径 |
 
 加第 5 类示例（如「制度」policy）——在 `types` 追加一项即可：
 
@@ -379,20 +387,20 @@ order_detail.xlsx ──clean──► order_detail__*.md ──ingest(LLM)─�
 
 ## CLI 操作步骤
 
-入口：`.venv/bin/python -m l1_kb.cli.kb <命令>`（装入口后可直接 `kb <命令>`）。
+入口：`.venv/bin/python -m kb_retrieval.kb.cli.kb <命令>`（装入口后可直接 `kb <命令>`）。
 
 ### 默认路径
 
-不带 `--*` 选项时，所有命令默认作用于 `l1_kb/knowledge_base/` 下：
+不带 `--*` 选项时，所有命令默认作用于 `kb_retrieval/kb/knowledge_base/` 下：
 
 | 选项 | 默认 |
 | --- | --- |
-| `--raw-root` | `l1_kb/knowledge_base/raw` |
-| `--md-root` | `l1_kb/knowledge_base/md` |
-| `--wiki-root` | `l1_kb/knowledge_base/wiki` |
-| `--cache-path` | `l1_kb/knowledge_base/.cache/ingest-cache.json` |
-| `--hash-path` | `l1_kb/knowledge_base/.cache/hash.json` |
-| `--log-path` | `l1_kb/knowledge_base/ingest_log.jsonl` |
+| `--raw-root` | `kb_retrieval/kb/knowledge_base/raw` |
+| `--md-root` | `kb_retrieval/kb/knowledge_base/md` |
+| `--wiki-root` | `kb_retrieval/kb/knowledge_base/wiki` |
+| `--cache-path` | `kb_retrieval/kb/knowledge_base/.cache/ingest-cache.json` |
+| `--hash-path` | `kb_retrieval/kb/knowledge_base/.cache/hash.json` |
+| `--log-path` | `kb_retrieval/kb/knowledge_base/ingest_log.jsonl` |
 
 下文示例用默认路径；换目录就传对应 `--*`。
 
@@ -412,13 +420,13 @@ raw/process/policy.md              # Markdown 流程制度
 
 ```bash
 # 单文件
-.venv/bin/python -m l1_kb.cli.kb clean l1_kb/knowledge_base/raw/data_table/order_detail.xlsx
+.venv/bin/python -m kb_retrieval.kb.cli.kb clean kb_retrieval/kb/knowledge_base/raw/data_table/order_detail.xlsx
 
 # 整个 raw 目录递归
-.venv/bin/python -m l1_kb.cli.kb clean l1_kb/knowledge_base/raw
+.venv/bin/python -m kb_retrieval.kb.cli.kb clean kb_retrieval/kb/knowledge_base/raw
 
 # 只看概要，不写 md/
-.venv/bin/python -m l1_kb.cli.kb clean l1_kb/knowledge_base/raw --dry-run
+.venv/bin/python -m kb_retrieval.kb.cli.kb clean kb_retrieval/kb/knowledge_base/raw --dry-run
 ```
 
 输出示例：
@@ -435,10 +443,10 @@ raw/process/policy.md              # Markdown 流程制度
 
 ```bash
 # 摄入整个 raw 目录（走 M3 增量三态：add/modify/delete/skip）
-.venv/bin/python -m l1_kb.cli.kb ingest l1_kb/knowledge_base/raw
+.venv/bin/python -m kb_retrieval.kb.cli.kb ingest kb_retrieval/kb/knowledge_base/raw
 
 # 禁用 LLM，强制确定性 fallback（只写 source 页）
-.venv/bin/python -m l1_kb.cli.kb ingest l1_kb/knowledge_base/raw --no-llm
+.venv/bin/python -m kb_retrieval.kb.cli.kb ingest kb_retrieval/kb/knowledge_base/raw --no-llm
 ```
 
 输出示例：
@@ -463,10 +471,10 @@ raw/process/policy.md              # Markdown 流程制度
 
 ```bash
 # 关键词检索
-.venv/bin/python -m l1_kb.cli.kb search "订单 字段"
+.venv/bin/python -m kb_retrieval.kb.cli.kb search "订单 字段"
 
 # 限制返回条数
-.venv/bin/python -m l1_kb.cli.kb search "order_id" --top-k 5
+.venv/bin/python -m kb_retrieval.kb.cli.kb search "order_id" --top-k 5
 ```
 
 输出示例：
@@ -483,7 +491,7 @@ raw/process/policy.md              # Markdown 流程制度
 重建 `wiki/index.md`（wiki 页目录）。纯确定性，不调 LLM。通常 `ingest` 已自动维护，手动跑用于修复。
 
 ```bash
-.venv/bin/python -m l1_kb.cli.kb index
+.venv/bin/python -m kb_retrieval.kb.cli.kb index
 ```
 
 ### 5. 自检：`kb lint`（五项确定性检查）
@@ -491,9 +499,9 @@ raw/process/policy.md              # Markdown 流程制度
 对 wiki 做一致性自检，输出 `lint_report.json` + 终端摘要；**有 error 则退码 1**。
 
 ```bash
-.venv/bin/python -m l1_kb.cli.kb lint
+.venv/bin/python -m kb_retrieval.kb.cli.kb lint
 # 报告默认写 ./lint_report.json，可指定：
-.venv/bin/python -m l1_kb.cli.kb lint --out /tmp/lint.json
+.venv/bin/python -m kb_retrieval.kb.cli.kb lint --out /tmp/lint.json
 ```
 
 五项：
@@ -513,10 +521,10 @@ raw/process/policy.md              # Markdown 流程制度
 
 ```bash
 # 先看会清什么
-.venv/bin/python -m l1_kb.cli.kb rebuild
+.venv/bin/python -m kb_retrieval.kb.cli.kb rebuild
 
 # 确认执行
-.venv/bin/python -m l1_kb.cli.kb rebuild --yes
+.venv/bin/python -m kb_retrieval.kb.cli.kb rebuild --yes
 ```
 
 ---
@@ -531,16 +539,16 @@ export LLM_API_KEY=sk-xxxxx
 export LLM_MODEL=deepseek-v4-flash
 
 # 1. 清洗
-.venv/bin/python -m l1_kb.cli.kb clean l1_kb/knowledge_base/raw
+.venv/bin/python -m kb_retrieval.kb.cli.kb clean kb_retrieval/kb/knowledge_base/raw
 
 # 2. 摄入
-.venv/bin/python -m l1_kb.cli.kb ingest l1_kb/knowledge_base/raw
+.venv/bin/python -m kb_retrieval.kb.cli.kb ingest kb_retrieval/kb/knowledge_base/raw
 
 # 3. 自检
-.venv/bin/python -m l1_kb.cli.kb lint
+.venv/bin/python -m kb_retrieval.kb.cli.kb lint
 
 # 4. 检索验证
-.venv/bin/python -m l1_kb.cli.kb search "订单"
+.venv/bin/python -m kb_retrieval.kb.cli.kb search "订单"
 ```
 
 ### 日常增量
@@ -548,7 +556,7 @@ export LLM_MODEL=deepseek-v4-flash
 改/加/删 raw 文件后，**只需再跑一次 ingest**（自动三态）：
 
 ```bash
-.venv/bin/python -m l1_kb.cli.kb ingest l1_kb/knowledge_base/raw
+.venv/bin/python -m kb_retrieval.kb.cli.kb ingest kb_retrieval/kb/knowledge_base/raw
 ```
 
 > M3 砍了 `watch` 常驻监听（手动 loop 即可）。要全自动重跑用 `kb rebuild --yes`。
@@ -558,7 +566,7 @@ export LLM_MODEL=deepseek-v4-flash
 ## 测试
 
 ```bash
-# 全量单测（mock LLM，无需 key；含 l1_kb/tests + l2_agent/tests）
+# 全量单测（mock LLM，无需 key；含 kb_retrieval/kb/tests + kb_retrieval/agent/tests）
 .venv/bin/python -m pytest -q
 
 # 只跑 M3 增量相关
@@ -570,7 +578,7 @@ export LLM_MODEL=deepseek-v4-flash
 DEEPSEEK_API_KEY=sk-xxxxx .venv/bin/python -m pytest tests/test_m3_incremental_e2e.py -v
 ```
 
-策略：单测一律 mock LLM（`monkeypatch.delenv` 掉 key）；e2e 用真 key 跑通 add→modify→delete→lint→search 全链。**真 key 绝不写进任何文件**。L2 单测在 `l2_agent/tests/`，e2e 用真 key 跑通多跳取全 + 带引用返回（见 [评估章节](#评估kb_eval)）。
+策略：单测一律 mock LLM（`monkeypatch.delenv` 掉 key）；e2e 用真 key 跑通 add→modify→delete→lint→search 全链。**真 key 绝不写进任何文件**。L2 单测在 `kb_retrieval/agent/tests/`，e2e 用真 key 跑通多跳取全 + 带引用返回（见 [评估章节](#评估kb_eval)）。
 
 ---
 
@@ -581,7 +589,7 @@ DEEPSEEK_API_KEY=sk-xxxxx .venv/bin/python -m pytest tests/test_m3_incremental_e
 启动：
 
 ```bash
-.venv/bin/python -m uvicorn l1_kb.service.app:app --port 8011
+.venv/bin/python -m uvicorn kb_retrieval.kb.service.app:app --port 8011
 # 或装入口后
 kb-serve
 ```
@@ -626,14 +634,14 @@ L2 是基于 `openai` SDK 工具循环 + FastAPI 的 Python Agent 服务，薄�
 ### 启动
 
 ```bash
-# 1. 先起 L1（默认 8011，指向 l1_kb/knowledge_base/wiki）
+# 1. 先起 L1（默认 8011，指向 kb_retrieval/kb/knowledge_base/wiki）
 .venv/bin/kb-serve &
 
 # 2. 注入 LLM key（DeepSeek，或任意 OpenAI 兼容端点）
 export LLM_API_KEY="$DEEPSEEK_API_KEY"
 export LLM_BASE_URL=https://api.deepseek.com/v1
 export LLM_MODEL=deepseek-chat
-export L1_BASE_URL=http://127.0.0.1:8011
+export KB_BASE_URL=http://127.0.0.1:8011
 
 # 3. 起 L2（默认 8012）
 .venv/bin/kb-agent-serve
@@ -651,7 +659,7 @@ export L1_BASE_URL=http://127.0.0.1:8011
 
 | env | 默认 | 说明 |
 | --- | --- | --- |
-| `L1_BASE_URL` | `http://127.0.0.1:8011` | L1 REST 服务地址 |
+| `KB_BASE_URL` | `http://127.0.0.1:8011` | L1 REST 服务地址 |
 | `LLM_BASE_URL` | `https://api.deepseek.com/v1` | LLM OpenAI 兼容端点 |
 | `LLM_API_KEY` | （空） | LLM key |
 | `LLM_MODEL` | `deepseek-v4-flash` | 模型名 |

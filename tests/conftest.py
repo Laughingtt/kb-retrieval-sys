@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 FIXTURES = Path(__file__).parent / "fixtures"
-RAW = Path(__file__).resolve().parents[1] / "l1_kb" / "knowledge_base" / "raw"
+RAW = Path(__file__).resolve().parents[1] / "kb_retrieval" / "kb" / "knowledge_base" / "raw"
 
 
 def _ensure_dirs() -> None:

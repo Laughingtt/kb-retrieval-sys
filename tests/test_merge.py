@@ -1,4 +1,4 @@
-from l1_kb.ingest.wiki.merge import merge_page
+from kb_retrieval.kb.ingest.wiki.merge import merge_page
 
 
 def _page(type_, title, sources, body, created="2026-07-01", updated="2026-07-01"):

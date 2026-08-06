@@ -1,4 +1,4 @@
-from l1_kb.retrieval.snippet import make_snippet
+from kb_retrieval.kb.retrieval.snippet import make_snippet
 
 
 def test_slice_lines():

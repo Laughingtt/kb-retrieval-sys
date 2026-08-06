@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from l1_kb.ingest.clean import clean_one
+from kb_retrieval.kb.ingest.clean import clean_one
 
 
 def test_clean_one_excel_writes_md(tmp_path: Path, order_xlsx: Path):

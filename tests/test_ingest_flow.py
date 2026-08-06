@@ -1,9 +1,9 @@
 # tests/test_ingest_flow.py
 from pathlib import Path
 from unittest.mock import MagicMock
-from l1_kb.ingest.incremental import ingest_flow, hash_store
-from l1_kb.ingest.wiki.ingest import build_fallback_pages
-from l1_kb.ingest.wiki.page_types import slug_from_source_identity
+from kb_retrieval.kb.ingest.incremental import ingest_flow, hash_store
+from kb_retrieval.kb.ingest.wiki.ingest import build_fallback_pages
+from kb_retrieval.kb.ingest.wiki.page_types import slug_from_source_identity
 
 def _seed_raw_md(tmp_path: Path, slug="data_table_order_detail", body="## 订单\n\n| order_id |\n|---|\n| O1 |\n"):
     raw = tmp_path / "raw"

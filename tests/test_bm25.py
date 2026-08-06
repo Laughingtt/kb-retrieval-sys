@@ -1,4 +1,4 @@
-from l1_kb.retrieval.bm25 import BM25Retriever
+from kb_retrieval.kb.retrieval.bm25 import BM25Retriever
 
 
 def test_ranking_exact_term_top():

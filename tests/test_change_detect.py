@@ -1,7 +1,7 @@
 # tests/test_change_detect.py
 from pathlib import Path
-from l1_kb.ingest.incremental import change_detect
-from l1_kb.ingest.incremental import hash_store
+from kb_retrieval.kb.ingest.incremental import change_detect
+from kb_retrieval.kb.ingest.incremental import hash_store
 
 def _make_raw(root: Path):
     (root / "data_table").mkdir(parents=True)

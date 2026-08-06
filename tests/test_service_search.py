@@ -1,6 +1,6 @@
 from pathlib import Path
-from l1_kb.service.store import load_store
-from l1_kb.service.search import search
+from kb_retrieval.kb.service.store import load_store
+from kb_retrieval.kb.service.search import search
 
 
 def _wiki(root: Path) -> None:
@@ -34,7 +34,7 @@ def test_search_returns_searchhit(tmp_path):
     _wiki(tmp_path)
     store = load_store(tmp_path)
     hits = search(store, "客户", top_k=5)
-    from l1_kb.retrieval.base import SearchHit
+    from kb_retrieval.kb.retrieval.base import SearchHit
     assert isinstance(hits[0], SearchHit)
     assert hits[0].doc_id == "customer__bb"
 

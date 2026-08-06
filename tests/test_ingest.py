@@ -1,7 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from l1_kb.ingest.wiki import ingest
+from kb_retrieval.kb.ingest.wiki import ingest
 
 
 def _fake_client(step1_json, step2_text):
@@ -84,7 +84,7 @@ def test_ingest_fallback_when_no_client(tmp_path):
 
 
 def test_ingest_fallback_when_llm_error(tmp_path):
-    from l1_kb.llm.client import LLMError
+    from kb_retrieval.kb.llm.client import LLMError
 
     wiki = tmp_path / "wiki"
     md_path = tmp_path / "md" / "data_table" / "order_detail.md"
@@ -102,8 +102,8 @@ def test_ingest_fallback_when_llm_error(tmp_path):
 
 
 def test_merge_page_backfills_empty_type_from_dir(tmp_path):
-    from l1_kb.ingest.wiki.merge import merge_page
-    from l1_kb.ingest.wiki.frontmatter import Frontmatter, dump
+    from kb_retrieval.kb.ingest.wiki.merge import merge_page
+    from kb_retrieval.kb.ingest.wiki.frontmatter import Frontmatter, dump
 
     wiki = tmp_path / "wiki"
     (wiki / "sources").mkdir(parents=True)

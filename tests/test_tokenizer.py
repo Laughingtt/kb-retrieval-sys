@@ -1,4 +1,4 @@
-from l1_kb.retrieval.tokenizer import tokenize
+from kb_retrieval.kb.retrieval.tokenizer import tokenize
 
 
 def test_english_token():

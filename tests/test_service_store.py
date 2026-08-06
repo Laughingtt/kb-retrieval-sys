@@ -1,5 +1,5 @@
 from pathlib import Path
-from l1_kb.service.store import load_store, PageEntry, SectionEntry, WikiStore, _MAX_BODY_CHARS
+from kb_retrieval.kb.service.store import load_store, PageEntry, SectionEntry, WikiStore, _MAX_BODY_CHARS
 
 
 def _make_wiki(root: Path) -> None:

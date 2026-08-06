@@ -1,6 +1,6 @@
 """kb_eval 评估脚本：直接调用 AgentLoop.run()，捕获每次查询的工具 trace。
 
-用法（L1 已在 8011 服务 kb_eval/wiki，L2 服务不必起，仅用 AgentLoop 直调）：
+用法（KB Service 已在 8011 服务 kb_eval/wiki，L2 服务不必起，仅用 AgentLoop 直调）：
     LLM_API_KEY=$DEEPSEEK_API_KEY python kb_eval/run_eval.py
 
 产出：
@@ -17,8 +17,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from l2_agent.agent import AgentLoop          # noqa: E402
-from l2_agent.l1_client import L1Client        # noqa: E402
+from kb_retrieval.agent.agent import AgentLoop          # noqa: E402
+from kb_retrieval.agent.kb_client import KBClient        # noqa: E402
 
 EVAL_DIR = Path(__file__).resolve().parent
 CASES = json.loads((EVAL_DIR / "cases.json").read_text(encoding="utf-8"))["cases"]
@@ -49,12 +49,12 @@ def judge(case: dict, answer: str, trace: list[dict]) -> tuple[bool, str]:
 
 
 def main() -> None:
-    l1 = L1Client()  # 默认指向 127.0.0.1:8011
-    h = l1.get_health()
-    print(f"[eval] L1 health: {h}")
+    kb = KBClient()  # 默认指向 127.0.0.1:8011
+    h = kb.get_health()
+    print(f"[eval] KB health: {h}")
     if h.get("wiki_root") != "kb_eval/wiki":
-        print(f"[eval][WARN] L1 wiki_root={h.get('wiki_root')!r}，期望 'kb_eval/wiki'")
-    loop = AgentLoop(l1=l1)
+        print(f"[eval][WARN] KB wiki_root={h.get('wiki_root')!r}，期望 'kb_eval/wiki'")
+    loop = AgentLoop(kb=kb)
 
     results = []
     pass_n = 0
