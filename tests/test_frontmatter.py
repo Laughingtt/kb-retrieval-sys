@@ -1,4 +1,4 @@
-from l1_kb.ingest.wiki import frontmatter as fm
+from kb_retrieval.kb.ingest.wiki import frontmatter as fm
 
 
 def test_parse_and_dump_roundtrip():

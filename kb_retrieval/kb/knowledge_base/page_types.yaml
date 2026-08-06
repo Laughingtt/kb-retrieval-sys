@@ -1,0 +1,45 @@
+# wiki 页类型配置 —— 单一事实源，驱动提示词 / page_types / index.md / REST API / lint。
+# 加第 N 类直接在此追加（无需改代码），全链路自动生效。
+# 字段说明（详见 kb_retrieval/kb/ingest/wiki/page_type_config.py 的校验规则）：
+#   key            类型键（frontmatter type 值，合法 slug [a-z0-9_]）
+#   dir            落盘目录名（wiki/{dir}/{slug}.md）
+#   label          中文展示名（index.md 段标题、可读）
+#   description    描述（注入 step1/step2 提示词的类型清单）
+#   mandatory      是否必产；全表恰好 1 个 mandatory=true
+#   orphan_exempt  L3 孤儿检查豁免（source 摘要页不报孤儿）
+#   xref_check     是否参与 L4 标签交叉引用检查
+#   plural_key     step1 分析 JSON 的数组键名（mandatory 类型留空，恒 1 张）
+#   dir_aliases    容忍的 LLM 漂移目录别名（归一化到 dir）
+#   schema_template step1 数组元素的字段模板（JSON 片段字符串，可空）
+types:
+  - key: source
+    dir: sources
+    label: 原件摘要
+    description: 一份原件的摘要页（每次摄入必产 1 张）
+    mandatory: true
+    orphan_exempt: true
+    xref_check: false
+    plural_key: ""
+    schema_template: ""
+  - key: entity
+    dir: entities
+    label: 业务实体
+    description: 数据表、API、系统、角色等业务对象
+    plural_key: entities
+    xref_check: true
+    schema_template: '{"name": "...", "slug": "entity_xxx", "role": "...", "exists": false}'
+  - key: concept
+    dir: concepts
+    label: 业务概念
+    description: 术语、口径、定义
+    plural_key: concepts
+    xref_check: true
+    schema_template: '{"name": "...", "slug": "concept_xxx", "definition": "...", "exists": false}'
+  - key: process
+    dir: process
+    label: 流程/制度
+    description: 审批流、制度编号、步骤、责任人、上下游、触发条件
+    plural_key: processes
+    dir_aliases: [processes]
+    xref_check: false
+    schema_template: '{"name": "...", "slug": "process_xxx", "code": "PRC-xxx 或制度编号", "owner": "...", "steps": ["..."], "upstream": "...", "downstream": "...", "exists": false}'

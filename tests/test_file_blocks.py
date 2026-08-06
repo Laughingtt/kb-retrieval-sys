@@ -1,4 +1,4 @@
-from l1_kb.ingest.wiki.file_blocks import parse_file_blocks
+from kb_retrieval.kb.ingest.wiki.file_blocks import parse_file_blocks
 
 
 def test_parse_two_blocks():

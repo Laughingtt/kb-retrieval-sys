@@ -1,9 +1,9 @@
 # tests/test_rebuild.py
 from pathlib import Path
 from click.testing import CliRunner
-from l1_kb.cli.kb import cli
-from l1_kb.ingest.incremental import ingest_flow, hash_store
-from l1_kb.ingest.cleaners.dispatcher import SUPPORTED_EXTS
+from kb_retrieval.kb.cli.kb import cli
+from kb_retrieval.kb.ingest.incremental import ingest_flow, hash_store
+from kb_retrieval.kb.ingest.cleaners.dispatcher import SUPPORTED_EXTS
 
 def _seed_raw(tmp_path: Path):
     raw = tmp_path / "raw"

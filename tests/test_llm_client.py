@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from l1_kb.llm import client as client_mod
-from l1_kb.llm.client import LLMClient, LLMError
+from kb_retrieval.kb.llm import client as client_mod
+from kb_retrieval.kb.llm.client import LLMClient, LLMError
 
 
 def _fake_openai(return_content):

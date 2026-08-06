@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from l1_kb.ingest.section_splitter import Section, split
+from kb_retrieval.kb.ingest.section_splitter import Section, split
 
 
 def _md(text: str) -> str:

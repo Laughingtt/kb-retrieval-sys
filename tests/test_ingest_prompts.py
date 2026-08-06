@@ -1,5 +1,5 @@
-from l1_kb.llm import ingest_prompts as p
-from l1_kb.ingest.wiki.page_type_config import get_registry
+from kb_retrieval.kb.llm import ingest_prompts as p
+from kb_retrieval.kb.ingest.wiki.page_type_config import get_registry
 
 
 def test_step1_messages_contain_required_fields():

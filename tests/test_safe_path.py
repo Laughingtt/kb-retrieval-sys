@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from l1_kb.ingest.safe_path import is_safe_path
+from kb_retrieval.kb.ingest.safe_path import is_safe_path
 
 
 def _make_file(p: Path, content: bytes = b"hi") -> Path:

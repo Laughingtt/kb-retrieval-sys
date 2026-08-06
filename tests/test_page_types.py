@@ -1,7 +1,7 @@
 import pytest
 
-from l1_kb.ingest.wiki import page_types as pt
-from l1_kb.ingest.wiki.page_type_config import get_registry
+from kb_retrieval.kb.ingest.wiki import page_types as pt
+from kb_retrieval.kb.ingest.wiki.page_type_config import get_registry
 
 
 def test_page_types_match_registry():

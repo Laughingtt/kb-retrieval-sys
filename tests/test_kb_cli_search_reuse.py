@@ -14,7 +14,7 @@ def _wiki(root: Path) -> None:
 def test_kb_search_uses_service(tmp_path, monkeypatch):
     _wiki(tmp_path)
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path / "wiki"))
-    from l1_kb.cli.kb import cli
+    from kb_retrieval.kb.cli.kb import cli
     r = CliRunner().invoke(cli, ["search", "订单"])
     assert r.exit_code == 0
     assert "order__a3f9c1e2" in r.output
@@ -23,7 +23,7 @@ def test_kb_search_uses_service(tmp_path, monkeypatch):
 def test_kb_search_no_match(tmp_path, monkeypatch):
     _wiki(tmp_path)
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path / "wiki"))
-    from l1_kb.cli.kb import cli
+    from kb_retrieval.kb.cli.kb import cli
     r = CliRunner().invoke(cli, ["search", "zzznomatch"])
     assert r.exit_code == 0
     assert "无结果" in r.output or r.output.strip() == "" or "0" in r.output

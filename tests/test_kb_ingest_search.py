@@ -3,7 +3,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from l1_kb.cli.kb import cli
+from kb_retrieval.kb.cli.kb import cli
 
 
 def _make_md(root):
@@ -65,7 +65,7 @@ def test_ingest_cmd_continues_on_error(tmp_path, monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
     # 替换 ingest_source：对 broken.md 抛异常，其余走原逻辑（fallback）
-    from l1_kb.cli import kb as kb_mod
+    from kb_retrieval.kb.cli import kb as kb_mod
     real_ingest_source = kb_mod.ingest_source
 
     def fake_ingest_source(f, identity, **kwargs):

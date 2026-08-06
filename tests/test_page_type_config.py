@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from l1_kb.ingest.wiki import page_types as pt
-from l1_kb.ingest.wiki.page_type_config import (
+from kb_retrieval.kb.ingest.wiki import page_types as pt
+from kb_retrieval.kb.ingest.wiki.page_type_config import (
     PageTypeConfigError,
     _reset_cache,
     get_registry,
@@ -64,7 +64,7 @@ def reset_cfg():
     setup 只清缓存（不预加载），让测试体设好 env 后首次 get_registry() 读新配置；
     teardown 清缓存并刷新回默认，避免污染后续测试。
     """
-    from l1_kb.ingest.wiki import page_types as pt
+    from kb_retrieval.kb.ingest.wiki import page_types as pt
     _reset_cache()
     yield
     _reset_cache()
@@ -186,7 +186,7 @@ types:
 def test_prompts_render_fifth_type(reset_cfg, monkeypatch, tmp_path):
     p = _write_yaml(tmp_path, YAML_5)
     monkeypatch.setenv("KB_PAGE_TYPES_PATH", str(p))
-    from l1_kb.llm.ingest_prompts import build_step1_messages, build_step2_messages
+    from kb_retrieval.kb.llm.ingest_prompts import build_step1_messages, build_step2_messages
 
     s1, _ = build_step1_messages("policy/x.md", "# 制度", "# Index")
     # policy 描述与路径枚举注入提示词
@@ -204,7 +204,7 @@ def test_prompts_render_fifth_type(reset_cfg, monkeypatch, tmp_path):
 def test_index_renders_fifth_type_section(reset_cfg, monkeypatch, tmp_path):
     p = _write_yaml(tmp_path, YAML_5)
     monkeypatch.setenv("KB_PAGE_TYPES_PATH", str(p))
-    from l1_kb.ingest.wiki.index_log import rebuild_index
+    from kb_retrieval.kb.ingest.wiki.index_log import rebuild_index
 
     wiki = tmp_path / "wiki"
     (wiki / "policies").mkdir(parents=True)
@@ -231,11 +231,11 @@ def test_app_documents_filter_accepts_fifth_type(reset_cfg, monkeypatch, tmp_pat
         "tags: []\nrelated: []\nsources: [x]\n---\nbody\n",
         encoding="utf-8",
     )
-    import l1_kb.config as config
+    import kb_retrieval.kb.config as config
 
     monkeypatch.setattr(config, "_PROJECT_ROOT", tmp_path)
     monkeypatch.setenv("WIKI_ROOT", str(wiki))
-    from l1_kb.service.app import app
+    from kb_retrieval.kb.service.app import app
 
     c = TestClient(app)
     # 合法新类型 → 200（不 422）
@@ -276,8 +276,8 @@ types:
 """
     p = _write_yaml(tmp_path, yaml_cfg)
     monkeypatch.setenv("KB_PAGE_TYPES_PATH", str(p))
-    from l1_kb.ingest.lint import checker
-    from l1_kb.ingest.wiki.index_log import rebuild_index
+    from kb_retrieval.kb.ingest.lint import checker
+    from kb_retrieval.kb.ingest.wiki.index_log import rebuild_index
 
     wiki = tmp_path / "wiki"
     hp = tmp_path / "hash.json"; lp = tmp_path / "log.jsonl"

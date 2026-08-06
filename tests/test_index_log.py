@@ -1,4 +1,4 @@
-from l1_kb.ingest.wiki import index_log
+from kb_retrieval.kb.ingest.wiki import index_log
 
 
 def _write(p, content):

@@ -1,6 +1,6 @@
 # tests/test_hash_store.py
 from pathlib import Path
-from l1_kb.ingest.incremental import hash_store
+from kb_retrieval.kb.ingest.incremental import hash_store
 
 def test_upsert_then_load(tmp_path: Path):
     hp = tmp_path / "hash.json"

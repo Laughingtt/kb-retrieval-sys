@@ -1,13 +1,13 @@
 import os
 from pathlib import Path
 
-from l1_kb import config
+from kb_retrieval.kb import config
 
 
 def test_paths_defaults(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "_PROJECT_ROOT", tmp_path)
-    assert config.RAW_ROOT == tmp_path / "l1_kb" / "knowledge_base" / "raw"
-    assert config.WIKI_ROOT == tmp_path / "l1_kb" / "knowledge_base" / "wiki"
+    assert config.RAW_ROOT == tmp_path / "kb_retrieval" / "kb" / "knowledge_base" / "raw"
+    assert config.WIKI_ROOT == tmp_path / "kb_retrieval" / "kb" / "knowledge_base" / "wiki"
     assert config.INGEST_CACHE_PATH.name == "ingest-cache.json"
 
 

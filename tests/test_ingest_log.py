@@ -1,6 +1,6 @@
 # tests/test_ingest_log.py
 from pathlib import Path
-from l1_kb.ingest.incremental import ingest_log
+from kb_retrieval.kb.ingest.incremental import ingest_log
 
 def test_append_ingest_add(tmp_path: Path):
     lp = tmp_path / "ingest_log.jsonl"

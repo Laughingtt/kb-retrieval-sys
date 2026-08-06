@@ -28,22 +28,40 @@
 - L2 → L1：只读 REST API（`/categories` `/documents` `/search` `/documents/{id}` `/index` `/health`），**无写入/执行端点**
 - L2 → LLM：OpenAI 兼容端点（可配置 base URL / key / model）
 
-## 三、目录结构（规划）
+## 三、目录结构
 
 ```
-knowledge_agent/
+kb-retrieval-sys/
 ├── CLAUDE.md                      # 本文件
+├── LICENSE                        # Apache-2.0
+├── CONTRIBUTING.md                # 贡献指南（硬约束 + GPL 红线）
+├── SECURITY.md                    # 安全说明（真 key 绝不落盘）
+├── CHANGELOG.md                   # 变更日志
 ├── docs/                          # 设计文档
 │   ├── architecture_3layer.md
 │   └── kb_retrieval_solutions.md
-├── l1_kb/                         # L1 知识库层
-│   ├── ingest/                    # PDF→MD 清洗 + index.json 生成
-│   ├── service/                   # 检索 API 服务
-│   └── knowledge_base/            # 数据：raw/ md/ index.json assets/
-├── l2_agent/                      # L2 Python Agent 服务（openai SDK + FastAPI）
-├── l3_ui/                         # L3 Open WebUI 部署配置
-└── docker-compose.yml             # 整体编排（可选）
+├── kb_retrieval/                  # 单一顶层 import 包
+│   ├── kb/                        # L1 知识库层（摄入 + 检索底座）
+│   │   ├── ingest/                # PDF→MD 清洗 + index.json 生成 + 增量摄入
+│   │   ├── retrieval/             # BM25 + RRF 检索
+│   │   ├── lint/                  # 确定性自检
+│   │   ├── service/               # 只读检索 REST API 服务
+│   │   ├── cli/                   # CLI 入口
+│   │   └── knowledge_base/        # 数据：raw/ md/ wiki/ page_types.yaml .cache/
+│   └── agent/                     # L2 Python Agent 服务（openai SDK + FastAPI）
+│       ├── agent.py               # AgentLoop 工具循环 + 自评重试
+│       ├── tools.py               # 5 只读工具（薄封装 KB REST）
+│       ├── kb_client.py           # KB REST 客户端
+│       ├── prompts.py / server.py / config.py
+│       └── tests/                 # 自包含单测 + e2e
+├── kb_eval/                       # 评估套件
+├── tests/                         # KB 单测 + e2e
+└── pyproject.toml                 # hatchling（单包 kb_retrieval）
 ```
+
+> 单一顶层包 `kb_retrieval/`，下含语义化子包 `kb/`（知识库层）与 `agent/`（Agent 层）。
+> 架构层概念 L1/L2/L3 仍作为设计词汇保留在本文与 `docs/architecture_3layer.md`，
+> 仅消除**路径与模块名**中的层名（原 `l1_kb/` / `l2_agent/`）。L3（Open WebUI）待 M6。
 
 ## 四、落地顺序
 

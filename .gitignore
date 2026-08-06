@@ -5,16 +5,20 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# L1 生成物（可从 raw 重建，不入库）
-l1_kb/knowledge_base/md/
-l1_kb/knowledge_base/index.json
-l1_kb/knowledge_base/hash.json
-l1_kb/knowledge_base/ingest_log.jsonl
-l1_kb/knowledge_base/vectors/
-l1_kb/knowledge_base/lint_report.json
-l1_kb/knowledge_base/kb_state/
-l1_kb/knowledge_base/wiki/
-l1_kb/knowledge_base/.cache/
+# 打包产物（开源常规项）
+dist/
+build/
+
+# KB 生成物（可从 raw 重建，不入库）
+kb_retrieval/kb/knowledge_base/md/
+kb_retrieval/kb/knowledge_base/index.json
+kb_retrieval/kb/knowledge_base/hash.json
+kb_retrieval/kb/knowledge_base/ingest_log.jsonl
+kb_retrieval/kb/knowledge_base/vectors/
+kb_retrieval/kb/knowledge_base/lint_report.json
+kb_retrieval/kb/knowledge_base/kb_state/
+kb_retrieval/kb/knowledge_base/wiki/
+kb_retrieval/kb/knowledge_base/.cache/
 
 # lint --out 默认落 cwd 的 lint_report.json（CLI 默认值，测试/手跑残留）
 /lint_report.json

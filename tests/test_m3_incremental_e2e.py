@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 from openpyxl import Workbook
 
-from l1_kb.cli.kb import cli
+from kb_retrieval.kb.cli.kb import cli
 
 KEY = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("LLM_API_KEY")
 MODEL = os.environ.get("DEEPSEEK_MODEL") or os.environ.get("LLM_MODEL") or "deepseek-v4-flash"

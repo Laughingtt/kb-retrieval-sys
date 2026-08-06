@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from click.testing import CliRunner
-from l1_kb.cli.kb import cli
+from kb_retrieval.kb.cli.kb import cli
 
 def _make_raw_md(tmp_path: Path):
     raw = tmp_path / "raw" / "data_table"

@@ -25,11 +25,11 @@ def _wiki(root: Path) -> None:
 
 
 def _client(tmp_path, monkeypatch):
-    import l1_kb.config as config
+    import kb_retrieval.kb.config as config
     monkeypatch.setattr(config, "_PROJECT_ROOT", tmp_path)
     # WIKI_ROOT 走 env，直接设
     monkeypatch.setenv("WIKI_ROOT", str(tmp_path / "wiki"))
-    from l1_kb.service.app import app
+    from kb_retrieval.kb.service.app import app
     return TestClient(app)
 
 

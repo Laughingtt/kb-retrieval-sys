@@ -15,11 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from l1_kb.ingest.cleaners.base import PandocNotAvailableError
-from l1_kb.ingest.cleaners.excel_cleaner import ExcelCleaner
-from l1_kb.ingest.cleaners.markdown_cleaner import MarkdownCleaner
-from l1_kb.ingest.cleaners.pdf_cleaner import PdfCleaner
-from l1_kb.ingest.cleaners.word_cleaner import WordCleaner
+from kb_retrieval.kb.ingest.cleaners.base import PandocNotAvailableError
+from kb_retrieval.kb.ingest.cleaners.excel_cleaner import ExcelCleaner
+from kb_retrieval.kb.ingest.cleaners.markdown_cleaner import MarkdownCleaner
+from kb_retrieval.kb.ingest.cleaners.pdf_cleaner import PdfCleaner
+from kb_retrieval.kb.ingest.cleaners.word_cleaner import WordCleaner
 
 
 def _has_pipe_table(md: str) -> bool:
@@ -67,7 +67,7 @@ class TestExcelCleaner:
         assert "O1001" in md
 
     def test_section_ids_from_split(self, order_xlsx: Path):
-        from l1_kb.ingest.section_splitter import split
+        from kb_retrieval.kb.ingest.section_splitter import split
 
         md = ExcelCleaner().to_markdown(order_xlsx)
         sections = split(md)
@@ -113,7 +113,7 @@ class TestWordCleaner:
 
 class TestDispatcher:
     def test_dispatch_by_ext(self):
-        from l1_kb.ingest.cleaners.dispatcher import get_cleaner
+        from kb_retrieval.kb.ingest.cleaners.dispatcher import get_cleaner
 
         assert isinstance(get_cleaner(".md"), MarkdownCleaner)
         assert isinstance(get_cleaner(".xlsx"), ExcelCleaner)
@@ -121,8 +121,8 @@ class TestDispatcher:
         assert isinstance(get_cleaner(".docx"), WordCleaner)
 
     def test_unknown_ext_raises(self):
-        from l1_kb.ingest.cleaners.base import CleanerError
-        from l1_kb.ingest.cleaners.dispatcher import get_cleaner
+        from kb_retrieval.kb.ingest.cleaners.base import CleanerError
+        from kb_retrieval.kb.ingest.cleaners.dispatcher import get_cleaner
 
         with pytest.raises(CleanerError):
             get_cleaner(".txt")

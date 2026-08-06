@@ -1,4 +1,4 @@
-from l1_kb.retrieval.base import RRFFuser, SearchHit
+from kb_retrieval.kb.retrieval.base import RRFFuser, SearchHit
 
 
 def _hit(doc_id, sec, score, source="bm25"):

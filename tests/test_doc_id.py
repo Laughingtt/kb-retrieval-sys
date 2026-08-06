@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from l1_kb.ingest.doc_id import make_doc_id, slugify_path
+from kb_retrieval.kb.ingest.doc_id import make_doc_id, slugify_path
 
 
 class TestSlugifyPath:
